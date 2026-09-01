@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AUX/KEYS — Chord Chart</title>
+<style>
+  html,body{
+    margin:0; height:100%; background:#0b0a08; color:#ede4d3;
+    font-family:'Courier New', monospace;
+    display:flex; align-items:center; justify-content:center; flex-direction:column;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .chord{
+    font-size: 24vw; font-weight:700; line-height:1; color:#e8a13a;
+    text-shadow: 0 0 30px rgba(232,161,58,.4);
+  }
+  .meta{ font-size: 4.5vw; color:#a89f8d; margin-top:3vh; text-align:center; letter-spacing:.5px; }
+  .stale{ opacity:0.4; }
+</style>
+</head>
+<body>
+  <div class="chord" id="chord">--</div>
+  <div class="meta" id="meta">connecting...</div>
+
+<script>
+(() => {
+  const chordEl = document.getElementById('chord');
+  const metaEl = document.getElementById('meta');
+  const STALE_MS = 5000; // if the host hasn't posted an update in this long, gray it out rather than show a lie
+
+  async function poll(){
+    try{
+      const res = await fetch('/state', { cache: 'no-store' });
+      const data = await res.json();
+      chordEl.textContent = data.chord || '--';
+      metaEl.textContent = (data.style || '') + ' · ' + (data.bpm || 0) + ' BPM · key: ' + (data.key || '--') + ' · ' + (data.mode || '');
+      const stale = !data.updatedAt || (Date.now() - data.updatedAt) > STALE_MS;
+      chordEl.classList.toggle('stale', stale);
+    }catch(e){
+      metaEl.textContent = 'connection lost — retrying...';
+      chordEl.classList.add('stale');
+    }
+    setTimeout(poll, 500);
+  }
+  poll();
+})();
+</script>
+</body>
+</html>

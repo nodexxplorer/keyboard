@@ -1,0 +1,1991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>AUX/KEYS — Signal Chain</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#14120f">
+<style>
+  :root{
+    --panel: #14120f;
+    --panel-raised: #1c1914;
+    --amber: #e8a13a;
+    --amber-dim: #6b5228;
+    --cream: #ede4d3;
+    --wire: #3a352c;
+    --danger: #c9603f;
+    --ok: #7fae6a;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; height:100%;
+    background: radial-gradient(ellipse at top, #201c16 0%, #0b0a08 70%);
+    color: var(--cream);
+    font-family: 'Courier New', monospace;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .rack{
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 18px 16px 40px;
+    min-height: 100%;
+  }
+  .brand{
+    display:flex; align-items:baseline; justify-content:space-between;
+    margin-bottom: 14px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--wire);
+  }
+  .brand h1{
+    font-size: 15px; letter-spacing: 3px; margin:0;
+    font-weight: 700; color: var(--cream);
+    text-transform: uppercase;
+  }
+  .brand span{ color: var(--amber-dim); font-size: 15px; letter-spacing: 3px; }
+  .brand small{
+    display:block; margin-top:3px; font-size: 10px; letter-spacing: 1.5px;
+    color: #7a7364; text-transform: uppercase;
+  }
+  .module{
+    background: var(--panel);
+    border: 1px solid var(--wire);
+    border-radius: 3px;
+    padding: 16px;
+    margin-bottom: 14px;
+    position: relative;
+  }
+  .module::before{
+    content: attr(data-tag);
+    position:absolute; top:-9px; left:12px;
+    background: var(--panel);
+    padding: 0 6px;
+    font-size: 9px;
+    letter-spacing: 2px;
+    color: var(--amber-dim);
+  }
+  .status-row{ display:flex; align-items:center; gap:10px; margin-bottom: 12px; }
+  .led{
+    width:9px; height:9px; border-radius:50%;
+    background: #3a352c;
+    box-shadow: inset 0 0 2px #000;
+    flex-shrink:0;
+    transition: background .1s, box-shadow .1s;
+  }
+  .led.live{ background: var(--ok); box-shadow: 0 0 8px var(--ok), inset 0 0 2px #04350; }
+  .led.warn{ background: var(--danger); box-shadow: 0 0 8px var(--danger); }
+  .status-text{ font-size: 11px; color:#a89f8d; letter-spacing: .5px; }
+
+  button{
+    font-family: inherit; letter-spacing: 1.5px; text-transform: uppercase;
+    font-size: 12px; font-weight: 700;
+    padding: 12px 18px; border-radius: 3px;
+    border: 1px solid var(--amber-dim);
+    background: var(--panel-raised);
+    color: var(--amber);
+    cursor:pointer;
+    width: 100%;
+  }
+  button:active{ background: #241f17; }
+  button:disabled{ opacity: .4; cursor: default; }
+  button.secondary{ color: var(--cream); border-color: var(--wire); }
+
+  canvas{
+    width:100%; height:110px; display:block;
+    background: #0a0906;
+    border: 1px solid var(--wire);
+    border-radius: 2px;
+  }
+
+  .readout{
+    display:flex; align-items:flex-end; justify-content:space-between;
+    padding: 18px 4px 6px;
+  }
+  .note-big{
+    font-size: 52px; font-weight:700; line-height:1;
+    color: var(--amber);
+    text-shadow: 0 0 14px rgba(232,161,58,.35);
+    min-width: 90px;
+  }
+  .note-big.silent{ color: #3a352c; text-shadow:none; }
+  .freq-stat{ text-align:right; }
+  .freq-stat .hz{ font-size: 20px; color: var(--cream); }
+  .freq-stat .cents{ font-size: 11px; color:#7a7364; margin-top:2px; }
+
+  .tuner-bar{
+    height: 6px; background:#0a0906; border-radius: 3px; overflow:hidden;
+    border:1px solid var(--wire); position:relative; margin-top: 8px;
+  }
+  .tuner-bar .center-mark{
+    position:absolute; left:50%; top:0; bottom:0; width:1px; background: var(--wire);
+  }
+  .tuner-bar .needle{
+    position:absolute; top:0; bottom:0; width:3px; background: var(--amber);
+    left:50%; transform: translateX(-50%);
+    box-shadow: 0 0 6px var(--amber);
+    transition: left .05s linear;
+  }
+
+  .row{ display:flex; gap:10px; }
+  .row > *{ flex:1; }
+
+  .toggle-group{ display:flex; gap:8px; margin-top:4px; }
+  .toggle-group.grid-3{ display:grid; grid-template-columns: repeat(3, 1fr); }
+  .toggle-group.grid-2{ display:grid; grid-template-columns: repeat(2, 1fr); }
+  .toggle-group button{ font-size: 10px; padding: 10px 8px; }
+  .toggle-group button.active{
+    background: var(--amber);
+    color: #14120f;
+    border-color: var(--amber);
+  }
+
+  .foot-note{
+    font-size: 10px; color:#5c5648; text-align:center; margin-top: 18px;
+    line-height: 1.6; letter-spacing: .3px;
+  }
+
+  .wkey{ fill:#ede4d3; stroke:var(--wire); stroke-width:1; transition: fill .1s; }
+  .bkey{ fill:#14120f; stroke:#000; stroke-width:1; transition: fill .1s; }
+  .wkey.key-root, .bkey.key-root{ fill: var(--amber); }
+  .wkey.key-tone, .bkey.key-tone{ fill: var(--amber); opacity: 0.55; }
+
+  .section-header{
+    margin: 26px 0 10px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--wire);
+    font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+    color: var(--amber-dim);
+  }
+  .section-header:first-of-type{ margin-top: 4px; }
+  .subsection-label{
+    font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: #5c5648; margin: 12px 0 4px;
+  }
+  .subsection-label:first-child{ margin-top: 0; }
+</style>
+</head>
+<body>
+<div class="rack">
+
+  <div class="brand">
+    <div>
+      <h1>AUX<span>/</span>KEYS</h1>
+      <small>signal &rarr; pitch &rarr; voice</small>
+    </div>
+    <small style="text-align:right; margin-top:0;">stage&nbsp;01</small>
+  </div>
+
+  <div class="section-header">Signal Chain</div>
+
+  <!-- MODE MODULE -->
+  <div class="module" data-tag="mode">
+    <div class="toggle-group grid-3">
+      <button id="app-mode-mirror" class="active">Mirror</button>
+      <button id="app-mode-band">One-Man-Band</button>
+      <button id="app-mode-split">Register Split</button>
+    </div>
+    <div class="row" style="margin-top:10px; align-items:center;">
+      <button id="split-down" class="secondary" style="flex:0 0 44px;">&minus;</button>
+      <div class="status-text" id="split-display" style="flex:1; text-align:center; margin:0;">Split: C4</div>
+      <button id="split-up" class="secondary" style="flex:0 0 44px;">+</button>
+    </div>
+    <div class="status-text" style="margin-top:6px; margin-bottom:0;">Register Split: below the split note drives the auto-band (left hand), above it drives the mirror voice (right hand) — a frequency-band approximation, not true simultaneous multi-note tracking, so it works best when hands aren't hitting the exact same instant</div>
+  </div>
+
+  <!-- INPUT MODULE -->
+  <div class="module" data-tag="input">
+    <div class="status-row">
+      <div class="led" id="led-input"></div>
+      <div class="status-text" id="input-status">no signal — waiting for connection</div>
+    </div>
+    <button id="btn-connect">Connect Aux Input</button>
+    <div class="row" style="margin-top:8px;">
+      <select id="device-select" style="flex:2; background:var(--panel-raised); color:var(--cream); border:1px solid var(--wire); border-radius:3px; padding:10px; font-family:inherit; font-size:11px;" disabled>
+        <option>select input device...</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- VOCAL MIC AUTO-DUCK MODULE -->
+  <div class="module" data-tag="vocal mic (auto-duck)">
+    <div class="status-row">
+      <div class="led" id="led-vocal"></div>
+      <div class="status-text" id="vocal-status">no vocal mic — accompaniment plays at normal level</div>
+    </div>
+    <button id="btn-connect-vocal" class="secondary">Connect Vocal Mic</button>
+    <div class="row" style="margin-top:8px;">
+      <select id="vocal-device-select" style="flex:2; background:var(--panel-raised); color:var(--cream); border:1px solid var(--wire); border-radius:3px; padding:10px; font-family:inherit; font-size:11px;" disabled>
+        <option>select mic device...</option>
+      </select>
+    </div>
+    <div class="status-text" style="margin-top:8px; margin-bottom:0;">connect the main input first — this needs the same audio context already running</div>
+  </div>
+
+  <!-- SCOPE MODULE -->
+  <div class="module" data-tag="waveform">
+    <canvas id="scope" width="600" height="110"></canvas>
+  </div>
+
+  <div class="section-header">Live Readout</div>
+
+  <!-- PITCH READOUT MODULE -->
+  <div class="module" data-tag="detected pitch">
+    <div class="readout">
+      <div class="note-big silent" id="note-name">--</div>
+      <div class="freq-stat">
+        <div class="hz" id="freq-hz">0.0 Hz</div>
+        <div class="cents" id="cents-off">-- cents</div>
+      </div>
+    </div>
+    <div class="tuner-bar">
+      <div class="center-mark"></div>
+      <div class="needle" id="needle"></div>
+    </div>
+  </div>
+
+  <!-- CHORD READOUT MODULE -->
+  <div class="module" data-tag="detected chord (chroma)">
+    <div class="readout" style="padding-top:4px; padding-bottom:0;">
+      <div class="note-big silent" id="chord-name" style="font-size:36px;">--</div>
+      <div class="freq-stat">
+        <div class="cents" id="chord-confidence">-- match</div>
+      </div>
+    </div>
+    <div class="status-text" id="key-display" style="margin-top:6px; margin-bottom:0;">key: -- (needs more playing to detect)</div>
+  </div>
+
+  <!-- ON-SCREEN KEYBOARD MODULE -->
+  <div class="module" data-tag="visual reference (by pitch class, any octave)">
+    <svg id="mini-keyboard" viewBox="0 0 336 140" width="100%" height="140" style="display:block;">
+      <rect id="pk-0"  class="wkey" x="0"   y="0" width="48" height="140"/>
+      <rect id="pk-2"  class="wkey" x="48"  y="0" width="48" height="140"/>
+      <rect id="pk-4"  class="wkey" x="96"  y="0" width="48" height="140"/>
+      <rect id="pk-5"  class="wkey" x="144" y="0" width="48" height="140"/>
+      <rect id="pk-7"  class="wkey" x="192" y="0" width="48" height="140"/>
+      <rect id="pk-9"  class="wkey" x="240" y="0" width="48" height="140"/>
+      <rect id="pk-11" class="wkey" x="288" y="0" width="48" height="140"/>
+      <rect id="pk-1"  class="bkey" x="34"  y="0" width="28" height="88"/>
+      <rect id="pk-3"  class="bkey" x="82"  y="0" width="28" height="88"/>
+      <rect id="pk-6"  class="bkey" x="178" y="0" width="28" height="88"/>
+      <rect id="pk-8"  class="bkey" x="226" y="0" width="28" height="88"/>
+      <rect id="pk-10" class="bkey" x="274" y="0" width="28" height="88"/>
+    </svg>
+  </div>
+
+  <div class="section-header">Voice &amp; Performance</div>
+
+  <!-- VOICE MODULE -->
+  <div class="module" data-tag="synth voice">
+    <div class="status-row">
+      <div class="led" id="led-voice"></div>
+      <div class="status-text" id="voice-status">mirror playback — detected note plays back live</div>
+    </div>
+    <div class="subsection-label">Instrument</div>
+    <div class="toggle-group grid-3">
+      <button id="instr-off" class="active">Off</button>
+      <button id="instr-piano">Piano</button>
+      <button id="instr-organ">Organ</button>
+      <button id="instr-strings">Strings</button>
+      <button id="instr-choir">Choir</button>
+      <button id="instr-brass">Brass</button>
+    </div>
+    <div class="subsection-label">Harmony</div>
+    <div class="toggle-group">
+      <button id="harmony-off" class="active">Harmony: Off</button>
+      <button id="harmony-third">+ Third</button>
+      <button id="harmony-fifth">+ Fifth</button>
+    </div>
+    <div class="status-text" id="harmony-status" style="margin-top:6px; margin-bottom:0;">needs a detected key before it can harmonize correctly</div>
+    <div class="subsection-label">Transpose</div>
+    <div class="row" style="align-items:center;">
+      <button id="transpose-down" class="secondary" style="flex:0 0 44px;">&minus;</button>
+      <div class="status-text" id="transpose-display" style="flex:1; text-align:center; margin:0;">Transpose: 0 st</div>
+      <button id="transpose-up" class="secondary" style="flex:0 0 44px;">+</button>
+    </div>
+    <div class="status-text" style="margin-top:6px; margin-bottom:0;">shifts what you hear (mirror voice, harmony, band bass/pad) to match a singer's range — what's shown always reflects what you actually played</div>
+    <div class="subsection-label">Touch Curve</div>
+    <div class="toggle-group grid-3">
+      <button id="touch-soft">Soft</button>
+      <button id="touch-normal" class="active">Normal</button>
+      <button id="touch-hard">Hard</button>
+    </div>
+    <div class="status-text" style="margin-top:6px; margin-bottom:0;">how playing loudness maps to output volume/band dynamics; Soft reaches full output at lower input levels, Hard needs more</div>
+    <div class="subsection-label">Reverb</div>
+    <div class="row" style="align-items:center; gap:8px;">
+      <input type="range" id="voice-reverb" min="0" max="100" value="0" style="flex:1;">
+      <span class="status-text" id="voice-reverb-value" style="margin:0; flex:0 0 32px; text-align:right;">0%</span>
+    </div>
+    <div class="status-text" style="margin-top:4px; margin-bottom:0;">per-instrument — each voice remembers its own reverb amount</div>
+  </div>
+
+  <!-- STAB PADS MODULE -->
+  <div class="module" data-tag="stab pads (manual only, any mode)">
+    <div class="toggle-group grid-3">
+      <button id="stab-cymbal">Cymbal Swell</button>
+      <button id="stab-amen">Amen Hit</button>
+      <button id="stab-orch">Orch Stab</button>
+    </div>
+  </div>
+
+  <div class="section-header">Auto-Band</div>
+
+  <!-- STYLE + TEMPO MODULE -->
+  <div class="module" data-tag="style + tempo">
+    <div class="toggle-group grid-2" style="margin-bottom:10px;">
+      <button id="style-gospel" class="active">Gospel Shuffle</button>
+      <button id="style-ballad">Ballad</button>
+      <button id="style-worship">Praise &amp; Worship</button>
+      <button id="style-uptempo">Up-tempo</button>
+    </div>
+    <div class="row" style="align-items:center;">
+      <button id="btn-tap" class="secondary">Tap Tempo</button>
+      <div style="text-align:right; flex:0 0 auto; min-width:90px;">
+        <div class="hz" id="bpm-display">96 BPM</div>
+        <div class="led" id="led-metronome" style="display:inline-block; margin-top:6px;"></div>
+      </div>
+    </div>
+    <div class="status-row" style="margin-top:12px;">
+      <button id="btn-sustain" class="secondary" style="flex:1;">Sustain: Off</button>
+      <button id="btn-fill" class="secondary" style="flex:1; margin-left:8px;">Fill</button>
+    </div>
+    <div class="status-text" style="margin-top:8px; margin-bottom:0;">style/tempo/sustain feed the auto-band engine directly; Fill also auto-triggers on a chord change</div>
+  </div>
+
+  <!-- SONG SECTION MODULE -->
+  <div class="module" data-tag="song section (band mode)">
+    <div class="toggle-group grid-2">
+      <button id="section-intro">Intro</button>
+      <button id="section-mainA" class="active">Main A</button>
+      <button id="section-mainB">Main B</button>
+      <button id="section-ending">Ending</button>
+    </div>
+    <div class="status-text" style="margin-top:6px; margin-bottom:0;">Intro forces a sparse arrangement; Ending finishes the current bar with a fill then stops cleanly. Main A/B share the same groove for now — distinct section grooves aren't authored yet.</div>
+  </div>
+
+  <!-- CHORD LOOPER MODULE -->
+  <div class="module" data-tag="chord looper">
+    <div class="status-text" id="looper-status" style="margin-top:0;">nothing recorded — hit Record and play a progression</div>
+    <div class="row" style="margin-top:10px;">
+      <button id="btn-looper-record" class="secondary" style="flex:1;">Record</button>
+      <button id="btn-looper-play" class="secondary" style="flex:1;">Play Loop</button>
+      <button id="btn-looper-clear" class="secondary" style="flex:1;">Clear</button>
+    </div>
+  </div>
+
+  <div class="section-header">Session Management</div>
+
+  <!-- REGISTRATIONS + SETLIST MODULE -->
+  <div class="module" data-tag="registrations">
+    <div class="row" style="margin-bottom:8px;">
+      <input id="reg-name" type="text" placeholder="Registration name (e.g. Opening Praise)" style="flex:2; background:var(--panel-raised); color:var(--cream); border:1px solid var(--wire); border-radius:3px; padding:10px; font-family:inherit; font-size:11px;">
+      <button id="btn-save-reg" class="secondary" style="flex:1;">Save</button>
+    </div>
+    <div id="registrations-list"></div>
+  </div>
+
+  <!-- SCENE SWITCH MODULE -->
+  <div class="module" data-tag="scene switch (instant, no naming)">
+    <div class="row">
+      <button id="scene-save-a" class="secondary" style="flex:1;">Save A</button>
+      <button id="scene-recall-a" style="flex:1;">Scene A</button>
+    </div>
+    <div class="row" style="margin-top:8px;">
+      <button id="scene-save-b" class="secondary" style="flex:1;">Save B</button>
+      <button id="scene-recall-b" style="flex:1;">Scene B</button>
+    </div>
+    <div class="status-text" id="scene-status" style="margin-top:8px; margin-bottom:0;">no scenes saved yet — for instant verse/chorus-style flips, not named presets</div>
+  </div>
+
+  <!-- SETLIST MODULE -->
+  <div class="module" data-tag="setlist">
+    <div id="setlist-list" style="margin-bottom:10px;"></div>
+    <div class="row">
+      <button id="btn-setlist-next" class="secondary" style="flex:1;">Next &#9656;</button>
+      <button id="btn-setlist-clear" class="secondary" style="flex:1;">Clear</button>
+    </div>
+  </div>
+
+  <div class="section-header">Capture &amp; Share</div>
+
+  <!-- SESSION LOG MODULE -->
+  <div class="module" data-tag="session log">
+    <div class="status-text" id="session-log-status" style="margin-top:0;">not recording — connect to start</div>
+    <div class="row" style="margin-top:10px;">
+      <button id="btn-log-download" class="secondary" style="flex:1;">Download Log</button>
+      <button id="btn-log-clear" class="secondary" style="flex:1;">Clear Log</button>
+    </div>
+  </div>
+
+  <!-- MULTI-TRACK RECORDING MODULE -->
+  <div class="module" data-tag="multi-track recording">
+    <div class="status-text" id="track-record-status" style="margin-top:0;">not recording — connect to start</div>
+    <div class="row" style="margin-top:10px;">
+      <button id="btn-track-input" class="secondary" style="flex:1;">Input</button>
+      <button id="btn-track-mirror" class="secondary" style="flex:1;">Mirror</button>
+      <button id="btn-track-band" class="secondary" style="flex:1;">Band</button>
+    </div>
+    <div class="status-text" style="margin-top:8px; margin-bottom:0;">each button downloads that track up to now and keeps recording — nothing after is lost</div>
+  </div>
+
+  <!-- LIVE CHORD CHART MODULE -->
+  <div class="module" data-tag="live chord chart (same wifi)">
+    <div class="status-text" id="chart-url-status" style="margin-top:0;">open this on a bandmate's phone, same WiFi, once connected:</div>
+    <div class="hz" id="chart-url" style="margin-top:6px; word-break:break-all;">--</div>
+    <div class="status-text" style="margin-top:8px; margin-bottom:0;">broadcasts automatically once the main input is connected — needs server.py running, not the plain static server</div>
+  </div>
+
+  <div class="foot-note">
+    monophonic pitch (YIN, AudioWorklet) + chroma chord detection, live &middot;<br>
+    mode switcher routes mirror voice &middot; auto-band accompaniment plays underneath
+  </div>
+
+</div>
+
+<!-- pinned version — Tone.js voices are synthesized approximations (Piano/Strings/Choir/Brass), not sampled instruments; real samples are a later swap per the project roadmap -->
+<script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>
+<script>
+(() => {
+  const btnConnect = document.getElementById('btn-connect');
+  const deviceSelect = document.getElementById('device-select');
+  const ledInput = document.getElementById('led-input');
+  const inputStatus = document.getElementById('input-status');
+  const ledVoice = document.getElementById('led-voice');
+  const scope = document.getElementById('scope');
+  const scopeCtx = scope.getContext('2d');
+  const noteName = document.getElementById('note-name');
+  const freqHz = document.getElementById('freq-hz');
+  const centsOff = document.getElementById('cents-off');
+  const needle = document.getElementById('needle');
+  const chordName = document.getElementById('chord-name');
+  const chordConfidence = document.getElementById('chord-confidence');
+
+  // --- style / tempo / sustain / fill: Phase 2 state + UI, wired for the Phase 3
+  // auto-band engine to read directly (currentStyle, currentBpm, sustainEnabled) —
+  // no observable audio yet since there's no accompaniment engine to drive
+  const STYLES = {
+    gospel:  { label: 'Gospel Shuffle', bpm: 96 },
+    ballad:  { label: 'Ballad', bpm: 68 },
+    worship: { label: 'Praise & Worship', bpm: 76 },
+    uptempo: { label: 'Up-tempo', bpm: 132 },
+  };
+  const styleButtons = {
+    gospel: document.getElementById('style-gospel'),
+    ballad: document.getElementById('style-ballad'),
+    worship: document.getElementById('style-worship'),
+    uptempo: document.getElementById('style-uptempo'),
+  };
+  const bpmDisplay = document.getElementById('bpm-display');
+  const ledMetronome = document.getElementById('led-metronome');
+  const btnTap = document.getElementById('btn-tap');
+  const btnSustain = document.getElementById('btn-sustain');
+  const btnFill = document.getElementById('btn-fill');
+
+  let currentStyle = 'gospel';
+  let currentBpm = STYLES.gospel.bpm;
+  let sustainEnabled = false;
+  let metronomeTimer = null;
+
+  function restartMetronome(){
+    if(metronomeTimer) clearInterval(metronomeTimer);
+    const intervalMs = 60000 / currentBpm;
+    metronomeTimer = setInterval(() => {
+      ledMetronome.classList.add('live');
+      setTimeout(() => ledMetronome.classList.remove('live'), Math.min(100, intervalMs*0.3));
+    }, intervalMs);
+  }
+
+  function setStyle(key){
+    currentStyle = key;
+    currentBpm = STYLES[key].bpm; // style picks a sensible default tempo; tap tempo can still override it
+    Object.entries(styleButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===key));
+    bpmDisplay.textContent = currentBpm + ' BPM';
+    restartMetronome();
+  }
+  Object.entries(styleButtons).forEach(([key, btn]) => { btn.onclick = () => setStyle(key); });
+
+  // tap tempo: rolling average of the last few tap intervals; a gap over
+  // TAP_RESET_GAP_MS starts a fresh sequence instead of blending into a stale one
+  const TAP_RESET_GAP_MS = 2500;
+  const TAP_HISTORY_LEN = 6;
+  let tapTimes = [];
+  btnTap.onclick = () => {
+    const now = performance.now();
+    if(tapTimes.length && now - tapTimes[tapTimes.length-1] > TAP_RESET_GAP_MS) tapTimes = [];
+    tapTimes.push(now);
+    if(tapTimes.length > TAP_HISTORY_LEN) tapTimes.shift();
+    if(tapTimes.length >= 2){
+      const intervals = [];
+      for(let i=1;i<tapTimes.length;i++) intervals.push(tapTimes[i]-tapTimes[i-1]);
+      const avgMs = intervals.reduce((a,b)=>a+b, 0) / intervals.length;
+      currentBpm = Math.round(60000/avgMs);
+      bpmDisplay.textContent = currentBpm + ' BPM (tapped)';
+      restartMetronome();
+    }
+  };
+
+  btnSustain.onclick = () => {
+    sustainEnabled = !sustainEnabled;
+    btnSustain.textContent = 'Sustain: ' + (sustainEnabled ? 'On' : 'Off');
+  };
+
+  btnFill.onclick = () => {
+    queuedFill = true;
+    btnFill.textContent = 'Fill queued';
+    setTimeout(() => { btnFill.textContent = 'Fill'; }, 800);
+  };
+
+  restartMetronome();
+
+  // --- registrations + setlist: save/recall a voice+style+tempo+sustain combo by
+  // name, and queue named registrations into an ordered setlist stepped with Next.
+  // Persisted to localStorage so presets survive a reload — the whole point of a
+  // registration is reusing it next Sunday, not just this session.
+  const REGISTRATIONS_STORAGE_KEY = 'auxkeys.registrations';
+  const SETLIST_STORAGE_KEY = 'auxkeys.setlist';
+  const regNameInput = document.getElementById('reg-name');
+  const btnSaveReg = document.getElementById('btn-save-reg');
+  const registrationsListEl = document.getElementById('registrations-list');
+  const setlistListEl = document.getElementById('setlist-list');
+  const btnSetlistNext = document.getElementById('btn-setlist-next');
+  const btnSetlistClear = document.getElementById('btn-setlist-clear');
+
+  function loadJSON(key, fallback){
+    try{ const v = JSON.parse(localStorage.getItem(key)); return v || fallback; }catch(e){ return fallback; }
+  }
+  let registrations = loadJSON(REGISTRATIONS_STORAGE_KEY, []);
+  let setlist = loadJSON(SETLIST_STORAGE_KEY, []);
+  let setlistIndex = -1;
+
+  function captureCurrentSettings(){
+    return { instrument: currentInstrumentKey, style: currentStyle, bpm: currentBpm, sustain: sustainEnabled };
+  }
+  function applySettings(settings){
+    setInstrument(settings.instrument);
+    setStyle(settings.style);
+    currentBpm = settings.bpm; // setStyle() just reset this to the style default; override with the saved value in case tap tempo customized it
+    bpmDisplay.textContent = currentBpm + ' BPM';
+    restartMetronome();
+    sustainEnabled = settings.sustain;
+    btnSustain.textContent = 'Sustain: ' + (sustainEnabled ? 'On' : 'Off');
+  }
+
+  function renderRegistrations(){
+    registrationsListEl.innerHTML = '';
+    if(registrations.length === 0){
+      registrationsListEl.innerHTML = '<div class="status-text" style="margin:0;">no registrations saved yet</div>';
+      return;
+    }
+    registrations.forEach((reg, idx) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.marginTop = '6px';
+      row.style.gap = '6px';
+
+      const recallBtn = document.createElement('button');
+      recallBtn.className = 'secondary';
+      recallBtn.style.flex = '2';
+      recallBtn.textContent = reg.name;
+      recallBtn.onclick = () => applySettings(reg.settings);
+
+      const addBtn = document.createElement('button');
+      addBtn.className = 'secondary';
+      addBtn.style.flex = '1';
+      addBtn.textContent = '+ Setlist';
+      addBtn.onclick = () => {
+        setlist.push({ name: reg.name, settings: {...reg.settings} }); // copy, so editing/deleting the source registration later can't corrupt an already-queued setlist entry
+        localStorage.setItem(SETLIST_STORAGE_KEY, JSON.stringify(setlist));
+        renderSetlist();
+      };
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'secondary';
+      delBtn.style.flex = '0 0 44px';
+      delBtn.textContent = 'Del';
+      delBtn.onclick = () => {
+        registrations.splice(idx, 1);
+        localStorage.setItem(REGISTRATIONS_STORAGE_KEY, JSON.stringify(registrations));
+        renderRegistrations();
+      };
+
+      row.appendChild(recallBtn);
+      row.appendChild(addBtn);
+      row.appendChild(delBtn);
+      registrationsListEl.appendChild(row);
+    });
+  }
+
+  function renderSetlist(){
+    setlistListEl.innerHTML = '';
+    if(setlist.length === 0){
+      setlistListEl.innerHTML = '<div class="status-text" style="margin:0;">setlist is empty — add registrations above</div>';
+      return;
+    }
+    setlist.forEach((entry, idx) => {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.style.marginTop = '6px';
+      row.style.gap = '6px';
+      row.style.alignItems = 'center';
+
+      const label = document.createElement('div');
+      label.style.flex = '2';
+      label.style.fontSize = '11px';
+      label.style.color = idx === setlistIndex ? 'var(--amber)' : 'var(--cream)';
+      label.textContent = (idx+1) + '. ' + entry.name + (idx === setlistIndex ? ' (current)' : '');
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'secondary';
+      delBtn.style.flex = '0 0 44px';
+      delBtn.textContent = 'Del';
+      delBtn.onclick = () => {
+        setlist.splice(idx, 1);
+        if(setlistIndex >= idx) setlistIndex--;
+        localStorage.setItem(SETLIST_STORAGE_KEY, JSON.stringify(setlist));
+        renderSetlist();
+      };
+
+      row.appendChild(label);
+      row.appendChild(delBtn);
+      setlistListEl.appendChild(row);
+    });
+  }
+
+  btnSaveReg.onclick = () => {
+    const name = regNameInput.value.trim();
+    if(!name) return;
+    registrations.push({ name, settings: captureCurrentSettings() });
+    localStorage.setItem(REGISTRATIONS_STORAGE_KEY, JSON.stringify(registrations));
+    regNameInput.value = '';
+    renderRegistrations();
+  };
+
+  btnSetlistNext.onclick = () => {
+    if(setlist.length === 0) return;
+    setlistIndex = (setlistIndex + 1) % setlist.length;
+    applySettings(setlist[setlistIndex].settings);
+    renderSetlist();
+  };
+
+  btnSetlistClear.onclick = () => {
+    setlist = [];
+    setlistIndex = -1;
+    localStorage.setItem(SETLIST_STORAGE_KEY, JSON.stringify(setlist));
+    renderSetlist();
+  };
+
+  renderRegistrations();
+  renderSetlist();
+
+  // --- scene switch: two dedicated, unnamed slots for instant A/B flips
+  // (verse/chorus-style) — genuinely different from Registrations, which is a
+  // named, browsable list. Reuses the same capture/apply helpers.
+  const SCENES_STORAGE_KEY = 'auxkeys.scenes';
+  let scenes = loadJSON(SCENES_STORAGE_KEY, { a: null, b: null });
+  const sceneStatus = document.getElementById('scene-status');
+
+  function saveScene(slot){
+    scenes[slot] = captureCurrentSettings();
+    localStorage.setItem(SCENES_STORAGE_KEY, JSON.stringify(scenes));
+    sceneStatus.textContent = 'Scene ' + slot.toUpperCase() + ' saved';
+  }
+  function recallScene(slot){
+    if(!scenes[slot]){ sceneStatus.textContent = 'Scene ' + slot.toUpperCase() + ' is empty — hit Save ' + slot.toUpperCase() + ' first'; return; }
+    applySettings(scenes[slot]);
+    sceneStatus.textContent = 'Scene ' + slot.toUpperCase() + ' recalled';
+  }
+  document.getElementById('scene-save-a').onclick = () => saveScene('a');
+  document.getElementById('scene-recall-a').onclick = () => recallScene('a');
+  document.getElementById('scene-save-b').onclick = () => saveScene('b');
+  document.getElementById('scene-recall-b').onclick = () => recallScene('b');
+
+  // --- session log: timestamped note/chord events, downloadable as a text file.
+  // This is the "log" half of the original vision's "audio and/or a note/chord
+  // log" — full audio/multi-track capture is a later, bigger feature.
+  let sessionLog = [];
+  let sessionStartTime = null;
+  const sessionLogStatus = document.getElementById('session-log-status');
+  const btnLogDownload = document.getElementById('btn-log-download');
+  const btnLogClear = document.getElementById('btn-log-clear');
+
+  function logEvent(type, value){
+    if(sessionStartTime === null) return;
+    sessionLog.push({ t: +((performance.now()-sessionStartTime)/1000).toFixed(2), type, value });
+    sessionLogStatus.textContent = 'recording — ' + sessionLog.length + ' events';
+  }
+
+  btnLogDownload.onclick = () => {
+    const text = sessionLog.map(e => '[' + e.t.toFixed(2) + 's] ' + e.type + ': ' + e.value).join('\n');
+    const blob = new Blob([text || 'no events logged this session'], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'auxkeys-session-' + new Date().toISOString().replace(/[:.]/g,'-') + '.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  btnLogClear.onclick = () => {
+    sessionLog = [];
+    sessionLogStatus.textContent = sessionStartTime !== null ? 'recording — 0 events' : 'not recording — connect to start';
+  };
+
+  // --- multi-track audio recording: input / mirror voice / band as separate
+  // downloadable audio files, via a MediaStreamAudioDestinationNode tap per
+  // source feeding a MediaRecorder — inspired by n-Track's multitrack
+  // recording, scoped down to just the tracks that actually exist here
+  const trackRecordStatus = document.getElementById('track-record-status');
+  const btnTrackInput = document.getElementById('btn-track-input');
+  const btnTrackMirror = document.getElementById('btn-track-mirror');
+  const btnTrackBand = document.getElementById('btn-track-band');
+  const RECORDER_MIME = (window.MediaRecorder && MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) ? 'audio/webm;codecs=opus' : '';
+  let trackRecorders = { input: null, mirror: null, band: null };
+  let trackChunks = { input: [], mirror: [], band: [] };
+
+  function startTrackRecorder(key, stream){
+    trackChunks[key] = [];
+    const rec = new MediaRecorder(stream, RECORDER_MIME ? {mimeType: RECORDER_MIME} : undefined);
+    rec.ondataavailable = (e) => { if(e.data && e.data.size > 0) trackChunks[key].push(e.data); };
+    rec.start();
+    trackRecorders[key] = rec;
+  }
+
+  function downloadTrack(key){
+    const rec = trackRecorders[key];
+    if(!rec || rec.state === 'inactive') return;
+    const stream = rec.stream;
+    rec.onstop = () => {
+      const blob = new Blob(trackChunks[key], {type: rec.mimeType || 'audio/webm'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'auxkeys-' + key + '-' + new Date().toISOString().replace(/[:.]/g,'-') + '.webm';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      startTrackRecorder(key, stream); // resume a fresh segment immediately so nothing after this point is lost
+    };
+    rec.stop();
+  }
+
+  btnTrackInput.onclick = () => downloadTrack('input');
+  btnTrackMirror.onclick = () => downloadTrack('mirror');
+  btnTrackBand.onclick = () => downloadTrack('band');
+
+  const instrumentButtons = {
+    off: document.getElementById('instr-off'),
+    piano: document.getElementById('instr-piano'),
+    organ: document.getElementById('instr-organ'),
+    strings: document.getElementById('instr-strings'),
+    choir: document.getElementById('instr-choir'),
+    brass: document.getElementById('instr-brass'),
+  };
+  let currentInstrumentKey = 'off';
+
+  const voiceReverbSlider = document.getElementById('voice-reverb');
+  const voiceReverbValue = document.getElementById('voice-reverb-value');
+  voiceReverbSlider.oninput = () => {
+    const amount = voiceReverbSlider.value / 100;
+    voiceReverbAmounts[currentInstrumentKey] = amount;
+    voiceReverbValue.textContent = voiceReverbSlider.value + '%';
+    if(voiceReverb) voiceReverb.wet.value = amount;
+  };
+
+  // --- Phase 3: auto-band engine (bass + drums + pad), rule-based, chord-driven.
+  // Reads currentStyle/currentBpm/sustainEnabled (Phase 2) and bandChordKey (set
+  // alongside lastChordKey below) directly — this is the payoff of building those
+  // as shared state ahead of time instead of local to whatever used them first.
+  //
+  // Voicing is naive/inversion-agnostic for v1: chord tones are each folded to the
+  // nearest pitch class within a single fixed octave, not spread by actual interval
+  // size, so a "close" voicing can occasionally sound slightly inverted. Correct for
+  // "sounds like the right chord under the melody," not for arranger-grade voicing.
+  const STYLE_PATTERNS = {
+    gospel: {
+      kick:      [1,0,0,0, 0,0,1,0, 0,0,1,0, 0,0,0,0],
+      snare:     [0,0,0,0, 1,0,0,1, 0,0,0,0, 1,0,0,1],
+      hihat:     [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+      fillSnare: [0,0,0,0, 0,0,0,0, 0,0,0,0, 1,1,1,1],
+      bass:      ['root',null,null,null, 'fifth',null,null,null, 'root',null,null,null, 'fifth',null,null,null],
+    },
+    ballad: {
+      kick:      [1,0,0,0, 0,0,0,0, 1,0,0,0, 0,0,0,0],
+      snare:     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+      hihat:     [1,0,1,0, 1,0,1,0, 1,0,1,0, 1,0,1,0],
+      fillSnare: [0,0,0,0, 0,0,0,0, 1,0,1,0, 1,1,1,1],
+      bass:      ['root',null,null,null, null,null,null,null, 'fifth',null,null,null, null,null,null,null],
+    },
+    worship: {
+      kick:      [1,0,0,0, 0,0,1,0, 1,0,0,0, 0,0,1,0],
+      snare:     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+      hihat:     [1,1,0,1, 1,1,0,1, 1,1,0,1, 1,1,0,1],
+      fillSnare: [0,0,0,0, 0,0,0,0, 0,0,0,0, 1,0,1,1],
+      bass:      ['root',null,null,null, 'root',null,'fifth',null, 'root',null,null,null, 'fifth',null,null,null],
+    },
+    uptempo: {
+      kick:      [1,0,0,1, 0,0,1,0, 1,0,0,1, 0,0,1,0],
+      snare:     [0,0,0,0, 1,0,0,0, 0,0,0,0, 1,0,0,0],
+      hihat:     [1,1,1,1, 1,1,1,1, 1,1,1,1, 1,1,1,1],
+      fillSnare: [1,1,0,1, 1,0,1,1, 0,1,1,0, 1,1,1,1],
+      bass:      ['root',null,'fifth',null, 'root',null,'fifth',null, 'root',null,'fifth',null, 'root',null,'fifth',null],
+    },
+  };
+
+  let bandChordKey = null; // separate from lastChordKey (display) so sustain-off can silence the display without stopping the band, or vice versa
+  let bandKick, bandSnare, bandHihat, bandBass, bandPad;
+  let bandSchedulerTimer = null;
+  let bandStep = 0; // position within one 16-step (one bar of 16th notes) loop
+  let nextStepTime = 0;
+  let queuedFill = false;
+  let padVoicingKey = null;
+  const SCHEDULE_AHEAD_TIME = 0.1; // seconds of lookahead — the classic Web Audio scheduling pattern, keeps timing sample-accurate despite setInterval jitter
+  const SCHEDULER_INTERVAL_MS = 25;
+
+  function initBandVoices(){
+    if(bandKick) return;
+    // routed through bandAudioOutput, a separate bus from the mirror voice's
+    // voiceOutput, so the two can be tapped and recorded as independent tracks
+    bandKick = new Tone.MembraneSynth({ octaves: 4, pitchDecay: 0.05 }).connect(bandAudioOutput);
+    bandSnare = new Tone.NoiseSynth({ noise: {type:'white'}, envelope:{attack:0.001, decay:0.15, sustain:0} }).connect(bandAudioOutput);
+    bandHihat = new Tone.NoiseSynth({ noise: {type:'white'}, envelope:{attack:0.001, decay:0.04, sustain:0} }).connect(bandAudioOutput);
+    bandBass = new Tone.MonoSynth({ oscillator:{type:'triangle'}, envelope:{attack:0.01, decay:0.2, sustain:0.6, release:0.3} }).connect(bandAudioOutput);
+    bandPad = new Tone.PolySynth(Tone.Synth, { oscillator:{type:'sawtooth'}, envelope:{attack:0.4, decay:0.3, sustain:0.7, release:1.2} });
+    bandPad.volume.value = -8;
+    bandPad.connect(bandAudioOutput);
+  }
+
+  function midiForPitchClass(pc, octave){ return 12*(octave+1) + pc; }
+
+  // --- one-touch stab pads: always manual, no auto-trigger — the whole value of
+  // these is a human hitting the exact right moment, per the automation-scope doc.
+  // Own bus (stabOutput), independent of mirror/band routing, since they're
+  // deliberately layered live regardless of mode.
+  let stabOutput = null, cymbalSwell = null, choirHitSynth = null, orchStabSynth = null;
+
+  function initStabVoices(){
+    if(stabOutput) return;
+    stabOutput = new Tone.Gain(0.7).connect(Tone.getDestination());
+
+    const cymbalFilter = new Tone.Filter({ frequency: 6000, type: 'highpass' }).connect(stabOutput);
+    cymbalSwell = new Tone.NoiseSynth({ noise:{type:'white'}, envelope:{attack:1.2, decay:0.3, sustain:0.4, release:2.5} }).connect(cymbalFilter);
+
+    choirHitSynth = new Tone.PolySynth(Tone.Synth, { oscillator:{type:'sawtooth'}, envelope:{attack:0.05, decay:0.3, sustain:0.5, release:1.5} });
+    choirHitSynth.volume.value = -6;
+    choirHitSynth.connect(stabOutput);
+
+    orchStabSynth = new Tone.PolySynth(Tone.Synth, { oscillator:{type:'sawtooth'}, envelope:{attack:0.005, decay:0.2, sustain:0, release:0.3} });
+    orchStabSynth.connect(stabOutput);
+  }
+
+  // uses whatever chord is currently locked, if any, so the stab actually fits
+  // what's being played — falls back to a plain C major when nothing's locked
+  function stabChordFreqs(octave){
+    if(lastChordKey){
+      const [rootStr, quality] = lastChordKey.split(':');
+      const root = +rootStr;
+      return CHORD_QUALITIES[quality].map(iv => midiToFreq(midiForPitchClass((root+iv)%12, octave)));
+    }
+    return CHORD_QUALITIES.maj.map(iv => midiToFreq(midiForPitchClass(iv, octave)));
+  }
+
+  document.getElementById('stab-cymbal').onclick = () => {
+    if(!audioCtx) return; // stabs need a live AudioContext — no-op before Connect
+    initStabVoices();
+    cymbalSwell.triggerAttackRelease('2n');
+  };
+  document.getElementById('stab-amen').onclick = () => {
+    if(!audioCtx) return;
+    initStabVoices();
+    choirHitSynth.triggerAttackRelease(stabChordFreqs(4), '2n');
+  };
+  document.getElementById('stab-orch').onclick = () => {
+    if(!audioCtx) return;
+    initStabVoices();
+    orchStabSynth.triggerAttackRelease(stabChordFreqs(4), '8n');
+  };
+
+  function bassNoteFreq(which, octave){
+    const [rootStr, quality] = bandChordKey.split(':');
+    const root = +rootStr;
+    const intervals = CHORD_QUALITIES[quality];
+    const iv = which === 'fifth' ? intervals[2] : intervals[0];
+    return transposeFreq(midiToFreq(midiForPitchClass((root+iv)%12, octave)));
+  }
+
+  function padChordFreqs(octave){
+    const [rootStr, quality] = bandChordKey.split(':');
+    const root = +rootStr;
+    return CHORD_QUALITIES[quality].map(iv => transposeFreq(midiToFreq(midiForPitchClass((root+iv)%12, octave))));
+  }
+
+  function updatePadForCurrentChord(time){
+    if(!bandChordKey){
+      if(padVoicingKey !== null){ bandPad.releaseAll(time); padVoicingKey = null; }
+      return;
+    }
+    if(bandChordKey === padVoicingKey) return; // same chord still holding — let it ring, don't re-trigger
+    bandPad.releaseAll(time);
+    bandPad.triggerAttack(padChordFreqs(4), time);
+    padVoicingKey = bandChordKey;
+  }
+
+  const HUMANIZE_RANGE = 0.012; // seconds, total spread (±6ms) — subtle micro-timing feel, not sloppy
+  function humanize(time){ return time + (Math.random()-0.5) * HUMANIZE_RANGE; }
+
+  // --- playing-intensity-aware dynamics: the band "breathes" with how hard the
+  // player is playing, using the RMS loudness the pitch worklet already computes
+  // every hop — a loudness proxy, tracked regardless of mode or whether a single
+  // pitch is resolvable, so it works the same in Mirror and Band mode alike
+  let bandIntensity = 0; // rolling 0..1 proxy
+  const INTENSITY_SMOOTHING = 0.9; // EMA factor toward the new sample per hop (~43Hz)
+  const INTENSITY_REFERENCE_RMS = 0.15; // rough "playing hard" RMS reference — retune by ear once tested
+  const INTENSITY_SPARSE_THRESHOLD = 0.25; // below this, drop the hihat layer for a lighter texture
+
+  // touch curve reshapes the same raw loudness signal before it becomes
+  // intensity — Soft reaches high output at lower input levels (forgiving/
+  // sensitive), Hard needs more real force to reach full output (more headroom
+  // for dynamic expression), mirroring how real keyboards offer touch curves
+  // even though our "velocity" comes from audio loudness, not a sensor
+  const TOUCH_CURVES = { soft: (x) => Math.pow(x, 0.5), normal: (x) => x, hard: (x) => Math.pow(x, 2) };
+  let touchCurve = 'normal';
+  const touchButtons = {
+    soft: document.getElementById('touch-soft'),
+    normal: document.getElementById('touch-normal'),
+    hard: document.getElementById('touch-hard'),
+  };
+  function setTouchCurve(c){
+    touchCurve = c;
+    Object.entries(touchButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===c));
+  }
+  touchButtons.soft.onclick = () => setTouchCurve('soft');
+  touchButtons.normal.onclick = () => setTouchCurve('normal');
+  touchButtons.hard.onclick = () => setTouchCurve('hard');
+
+  const MIRROR_GAIN_MIN = 0.15, MIRROR_GAIN_MAX = 0.5; // mirror voice's own output now breathes with touch too, not just the band
+
+  function updateBandIntensity(level){
+    const normalized = Math.min(1, level / INTENSITY_REFERENCE_RMS);
+    const shaped = TOUCH_CURVES[touchCurve](normalized);
+    bandIntensity = bandIntensity * INTENSITY_SMOOTHING + shaped * (1 - INTENSITY_SMOOTHING);
+    if(voiceOutput) voiceOutput.gain.rampTo((MIRROR_GAIN_MIN + bandIntensity * (MIRROR_GAIN_MAX-MIRROR_GAIN_MIN)) * duckFactor, 0.05);
+  }
+  function effectiveIntensity(){
+    // song sections can override the live playing-intensity signal — Intro
+    // forces a sparse texture regardless of how hard you're actually playing
+    return sectionIntensityOverride !== null ? sectionIntensityOverride : bandIntensity;
+  }
+  function bandVelocity(){
+    return Math.max(0.35, effectiveIntensity()); // floor so quiet playing softens the band rather than near-silencing it
+  }
+
+  function scheduleStep(step, time){
+    const pattern = STYLE_PATTERNS[currentStyle];
+    const isFillBar = queuedFill && step >= 12; // swap in the fill variant for the last beat of the bar
+    const snarePattern = isFillBar ? pattern.fillSnare : pattern.snare;
+    const velocity = bandVelocity();
+
+    if(pattern.kick[step]) bandKick.triggerAttackRelease('C1', '16n', humanize(time), velocity);
+    if(snarePattern[step]) bandSnare.triggerAttackRelease('16n', humanize(time), velocity);
+    if(pattern.hihat[step] && effectiveIntensity() > INTENSITY_SPARSE_THRESHOLD) bandHihat.triggerAttackRelease('32n', humanize(time), velocity);
+
+    const bassNote = pattern.bass[step];
+    if(bassNote && bandChordKey) bandBass.triggerAttackRelease(bassNoteFreq(bassNote, 2), '8n', humanize(time), velocity);
+
+    if(step === 0){
+      if(isFillBar) queuedFill = false;
+      if(endingPending){ endingPending = false; stopBandEngine(); return; } // let the fill bar finish, then stop cleanly on the downbeat rather than cutting off mid-bar
+      updatePadForCurrentChord(time); // pad sustains a chord tone, not a rhythmic hit — no jitter needed
+    }
+  }
+
+  function bandSchedulerTick(){
+    const secondsPerStep = (60/currentBpm)/4; // 16th notes
+    while(nextStepTime < audioCtx.currentTime + SCHEDULE_AHEAD_TIME){
+      scheduleStep(bandStep, nextStepTime);
+      nextStepTime += secondsPerStep;
+      bandStep = (bandStep+1) % 16;
+    }
+  }
+
+  function startBandEngine(){
+    if(bandSchedulerTimer) return;
+    initBandVoices();
+    bandStep = 0;
+    nextStepTime = audioCtx.currentTime + 0.05;
+    padVoicingKey = null;
+    bandSchedulerTimer = setInterval(bandSchedulerTick, SCHEDULER_INTERVAL_MS);
+  }
+
+  function stopBandEngine(){
+    if(bandSchedulerTimer){ clearInterval(bandSchedulerTimer); bandSchedulerTimer = null; }
+    if(bandPad) bandPad.releaseAll();
+    padVoicingKey = null;
+  }
+
+  // --- mode switcher: pure routing, decides which listener the detected
+  // note is allowed to drive. Chord detection always runs regardless of
+  // mode — it's informational in Mirror, load-bearing once the auto-band
+  // engine (Phase 3) plugs in here for Band mode.
+  const appModeButtons = {
+    mirror: document.getElementById('app-mode-mirror'),
+    band: document.getElementById('app-mode-band'),
+    split: document.getElementById('app-mode-split'),
+  };
+  const voiceStatus = document.getElementById('voice-status');
+  let appMode = 'mirror';
+
+  // --- register split state: below splitHz drives chord detection/auto-band
+  // (left hand), at/above it drives the melody pitch detector/mirror voice
+  // (right hand). Frequency-band approximation, not true polyphonic tracking —
+  // see the module's own caption for the honest limitation.
+  let splitMidi = 60; // C4
+  const splitDisplay = document.getElementById('split-display');
+  function splitHz(){ return midiToFreq(splitMidi); }
+  function setSplitMidi(m){
+    splitMidi = Math.max(36, Math.min(84, m)); // C2..C6, sane keyboard range
+    splitDisplay.textContent = 'Split: ' + midiToNoteName(splitMidi).name;
+    if(melodyHighpass) melodyHighpass.frequency.value = splitHz();
+  }
+  document.getElementById('split-down').onclick = () => setSplitMidi(splitMidi - 1);
+  document.getElementById('split-up').onclick = () => setSplitMidi(splitMidi + 1);
+  setSplitMidi(splitMidi);
+
+  // --- on-screen keyboard: highlights by pitch class only, any octave — a
+  // learning aid, not a literal "which key" display, since audio input covers
+  // whatever octave was actually played and pitch class is what's musically relevant
+  function clearKeyboardHighlights(){
+    for(let pc=0; pc<12; pc++){
+      const el = document.getElementById('pk-'+pc);
+      el.classList.remove('key-root','key-tone');
+    }
+  }
+  function highlightKeyboard(pcs, rootPc){
+    clearKeyboardHighlights();
+    pcs.forEach(pc => {
+      document.getElementById('pk-'+pc).classList.add(pc === rootPc ? 'key-root' : 'key-tone');
+    });
+  }
+  function refreshKeyboardVisual(){
+    if(appMode === 'split'){
+      // show both simultaneously: chord tones (left hand) as the base layer,
+      // melody note (right hand) layered on top as the "root" marker
+      clearKeyboardHighlights();
+      if(lastChordKey){
+        const [rootStr, quality] = lastChordKey.split(':');
+        const root = +rootStr;
+        CHORD_QUALITIES[quality].forEach(iv => {
+          document.getElementById('pk-'+((root+iv)%12)).classList.add('key-tone');
+        });
+      }
+      if(lastMidi !== null){
+        const pc = ((lastMidi % 12) + 12) % 12;
+        document.getElementById('pk-'+pc).classList.add('key-root');
+      }
+    } else if(appMode === 'mirror'){
+      if(lastMidi !== null){
+        const pc = ((lastMidi % 12) + 12) % 12;
+        highlightKeyboard([pc], pc);
+      } else {
+        clearKeyboardHighlights();
+      }
+    } else if(lastChordKey){
+      const [rootStr, quality] = lastChordKey.split(':');
+      const root = +rootStr;
+      highlightKeyboard(CHORD_QUALITIES[quality].map(iv => (root+iv)%12), root);
+    } else {
+      clearKeyboardHighlights();
+    }
+  }
+
+  function setAppMode(m){
+    appMode = m;
+    Object.entries(appModeButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===m));
+    Object.values(instrumentButtons).forEach(btn => btn.disabled = (m === 'band'));
+
+    if(m === 'band'){
+      stopVoice();
+      stopHarmonyVoice();
+      stopBandEngine(); // restarted below only if a chord's already held; avoids a stale engine surviving the switch with the wrong pattern gates
+      voiceStatus.textContent = 'band mode — mirror voice silenced; auto-band plays under the detected chord';
+      if(bandChordKey) startBandEngine(); // a chord was already held through the switch — start immediately rather than waiting for the next one
+    } else if(m === 'split'){
+      voiceStatus.textContent = 'register split — below ' + midiToNoteName(splitMidi).name + ' drives the band, at/above it mirrors as melody';
+      if(lastMidi !== null){ startVoice(midiToFreq(lastMidi)); startHarmonyVoice(lastMidi); }
+      if(bandChordKey) startBandEngine();
+    } else {
+      stopBandEngine();
+      voiceStatus.textContent = 'mirror playback — detected note plays back live';
+      if(lastMidi !== null){ startVoice(midiToFreq(lastMidi)); startHarmonyVoice(lastMidi); } // resume mirroring a note already held through the switch
+    }
+    refreshKeyboardVisual();
+  }
+  appModeButtons.mirror.onclick = () => setAppMode('mirror');
+  appModeButtons.band.onclick = () => setAppMode('band');
+  appModeButtons.split.onclick = () => setAppMode('split');
+
+  let audioCtx, analyser, sourceNode, pitchNode, dataArray, bufferLength, freqDataArray;
+  let melodyPitchNode, melodyHighpass; // Register Split's highpass-filtered second pitch detector
+  let voiceOutput = null; // Tone.Gain the mirror instrument voice routes through
+  let bandAudioOutput = null; // separate Tone.Gain the band engine routes through — kept apart so each can be recorded as its own track
+  let voiceReverb = null; // one shared Tone.Reverb all instrument voices route through — per-instrument "amount" is just its wet value, switched on instrument change; a fresh Reverb per note would be too slow (impulse generation has real startup cost)
+  const VOICE_REVERB_DEFAULTS = { off: 0, piano: 0.2, organ: 0.4, strings: 0.5, choir: 0.6, brass: 0.15 };
+  let voiceReverbAmounts = {...VOICE_REVERB_DEFAULTS};
+  let currentVoiceInstance = null;
+  let lastMidi = null;
+
+  // --- instrument voices (Tone.js) ---
+  // Synthesized approximations, not sampled instruments — real samples are a later
+  // swap (Tone.Sampler) per the roadmap; this just needed a real timbre per voice now.
+  // Each factory returns a small uniform wrapper so startVoice/updateVoiceFreq/stopVoice
+  // don't need to know which instrument is active.
+  function makePianoVoice(){
+    const synth = new Tone.Synth({
+      oscillator: { type: 'triangle' },
+      envelope: { attack: 0.005, decay: 0.35, sustain: 0.1, release: 0.8 }
+    }).connect(voiceReverb);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.02),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => synth.dispose(),
+    };
+  }
+
+  function makeOrganVoice(){
+    const fundamental = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.02, decay: 0.05, sustain: 0.9, release: 0.15 }
+    }).connect(voiceReverb);
+    const harmonicGain = new Tone.Gain(0.4).connect(voiceReverb);
+    const harmonic = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.02, decay: 0.05, sustain: 0.9, release: 0.15 }
+    }).connect(harmonicGain);
+    return {
+      triggerAttack: (freq) => { fundamental.triggerAttack(freq); harmonic.triggerAttack(freq*2); },
+      setFrequency: (freq) => {
+        fundamental.frequency.setTargetAtTime(freq, Tone.now(), 0.02);
+        harmonic.frequency.setTargetAtTime(freq*2, Tone.now(), 0.02);
+      },
+      triggerRelease: () => { fundamental.triggerRelease(); harmonic.triggerRelease(); },
+      dispose: () => { fundamental.dispose(); harmonic.dispose(); harmonicGain.dispose(); },
+    };
+  }
+
+  function makeStringsVoice(){
+    const vibrato = new Tone.Vibrato({ frequency: 5, depth: 0.08 }).connect(voiceReverb);
+    const synth = new Tone.Synth({
+      oscillator: { type: 'sawtooth' },
+      envelope: { attack: 0.4, decay: 0.15, sustain: 0.85, release: 1.0 }
+    }).connect(vibrato);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.05),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => { synth.dispose(); vibrato.dispose(); },
+    };
+  }
+
+  function makeChoirVoice(){
+    const filter = new Tone.Filter({ frequency: 1200, type: 'lowpass', rolloff: -12 }).connect(voiceReverb);
+    const chorus = new Tone.Chorus({ frequency: 1.5, delayTime: 3.5, depth: 0.5 }).connect(filter);
+    chorus.start();
+    const synth = new Tone.Synth({
+      oscillator: { type: 'sawtooth' },
+      envelope: { attack: 0.6, decay: 0.2, sustain: 0.8, release: 1.5 }
+    }).connect(chorus);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.05),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => { synth.dispose(); chorus.dispose(); filter.dispose(); },
+    };
+  }
+
+  function makeBrassVoice(){
+    const synth = new Tone.MonoSynth({
+      oscillator: { type: 'fatsawtooth', count: 3, spread: 20 },
+      envelope: { attack: 0.08, decay: 0.2, sustain: 0.7, release: 0.4 },
+      filterEnvelope: { attack: 0.05, decay: 0.3, sustain: 0.4, release: 0.4, baseFrequency: 300, octaves: 3 }
+    }).connect(voiceReverb);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.03),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => synth.dispose(),
+    };
+  }
+
+  const INSTRUMENTS = {
+    piano: makePianoVoice,
+    organ: makeOrganVoice,
+    strings: makeStringsVoice,
+    choir: makeChoirVoice,
+    brass: makeBrassVoice,
+  };
+
+  // --- stability layer: smooths raw per-frame pitch estimates before
+  // they're allowed to change the displayed/played note ---
+  const FREQ_HISTORY_LEN = 5;
+  const NOTE_LOCK_FRAMES = 4; // consecutive frames a new note must win before it takes over
+  let freqHistory = [];
+  let candidateMidi = null;
+  let candidateStreak = 0;
+
+  function medianOf(arr){
+    const sorted = [...arr].sort((a,b) => a-b);
+    return sorted[Math.floor(sorted.length/2)];
+  }
+
+  function resetStability(){
+    freqHistory = [];
+    candidateMidi = null;
+    candidateStreak = 0;
+  }
+
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+  // --- chroma / chord detection ---
+  // v1 supports major and minor triads only, per worship-context scope decision;
+  // 7ths can be added later as more template entries, no structural change needed
+  const CHORD_QUALITIES = { maj: [0,4,7], min: [0,3,7] };
+  const CHORD_TEMPLATES = (() => {
+    const templates = [];
+    for(let root = 0; root < 12; root++){
+      for(const quality of Object.keys(CHORD_QUALITIES)){
+        const vec = new Array(12).fill(0);
+        CHORD_QUALITIES[quality].forEach(iv => { vec[(root+iv)%12] = 1; });
+        templates.push({root, quality, vec});
+      }
+    }
+    return templates;
+  })();
+
+  const CHROMA_MIN_FREQ = 80, CHROMA_MAX_FREQ = 4000;
+  const CHROMA_SILENCE_ENERGY = 0.05; // summed linear-amplitude chroma energy below this = no signal
+  // a perfectly flat/uniform chroma vector (i.e. unstructured noise) scores exactly 0.5 cosine
+  // similarity against any 3-note triad template (dot=3, norms sqrt(12)*sqrt(3)=6, 3/6=0.5) — with
+  // 24 templates compared and the best kept, mild real-world noise crosses a 0.55 floor often by
+  // chance. A real chord concentrates energy sharply enough to score ~0.85-0.95, so raise the floor
+  // well clear of the noise baseline rather than just above it.
+  const CHORD_CONFIDENCE_MIN = 0.78;
+  const CHORD_LOCK_FRAMES = 4; // same debounce shape as note-lock, applied to the *display* from the start
+  const CHROMA_HISTORY_LEN = 4; // rolling average of raw chroma vectors, same role as the pitch detector's median filter
+
+  let lastChordKey = null, candidateChordKey = null, candidateChordStreak = 0;
+  let chromaHistory = [];
+
+  function averageChroma(newChroma){
+    chromaHistory.push(newChroma);
+    if(chromaHistory.length > CHROMA_HISTORY_LEN) chromaHistory.shift();
+    const avg = new Array(12).fill(0);
+    for(const c of chromaHistory) for(let i=0;i<12;i++) avg[i] += c[i];
+    for(let i=0;i<12;i++) avg[i] /= chromaHistory.length;
+    return avg;
+  }
+
+  function computeChroma(freqData, sampleRate, fftSize, maxFreq){
+    if(maxFreq === undefined) maxFreq = CHROMA_MAX_FREQ;
+    const chroma = new Array(12).fill(0);
+    const binHz = sampleRate / fftSize;
+    for(let i = 0; i < freqData.length; i++){
+      const freq = i * binHz;
+      if(freq < CHROMA_MIN_FREQ || freq > maxFreq) continue;
+      const db = freqData[i];
+      if(!isFinite(db)) continue;
+      const amp = Math.pow(10, db/20);
+      const midi = Math.round(freqToMidi(freq));
+      const pc = ((midi % 12) + 12) % 12;
+      chroma[pc] += amp;
+    }
+    return chroma;
+  }
+
+  function cosineSim(a, b){
+    let dot=0, na=0, nb=0;
+    for(let i=0;i<12;i++){ dot += a[i]*b[i]; na += a[i]*a[i]; nb += b[i]*b[i]; }
+    if(na===0 || nb===0) return 0;
+    return dot / (Math.sqrt(na)*Math.sqrt(nb));
+  }
+
+  function matchChord(chroma){
+    let best = null, bestScore = -1;
+    for(const t of CHORD_TEMPLATES){
+      const score = cosineSim(chroma, t.vec);
+      if(score > bestScore){ bestScore = score; best = t; }
+    }
+    return {root: best.root, quality: best.quality, score: bestScore};
+  }
+
+  // --- auto key/scale detection: track how long each distinct chord stays
+  // locked over the session; whichever one you rest on longest is treated as
+  // the tonic, and its already-known major/minor quality gives the key's mode
+  // directly. This sidesteps a real limitation of matching accumulated notes
+  // against scale templates instead: a relative major and minor key (e.g. C
+  // major / A minor) share identical pitch content, so pitch data alone can't
+  // tell them apart — but we already know each chord's quality from detection.
+  let activeKeyChordKey = null;
+  let keyChordLockedAt = null;
+  let keyChordDurations = {};
+  let detectedKey = null; // {root, quality} once something's been held long enough to trust
+  const KEY_MIN_CONFIDENT_SECONDS = 8;
+  const keyDisplay = document.getElementById('key-display');
+
+  function noteKeyChordTransition(newKey){
+    const now = performance.now();
+    if(activeKeyChordKey){
+      keyChordDurations[activeKeyChordKey] = (keyChordDurations[activeKeyChordKey] || 0) + (now - keyChordLockedAt)/1000;
+    }
+    activeKeyChordKey = newKey;
+    keyChordLockedAt = newKey ? now : null;
+
+    let bestKey = null, bestDuration = 0;
+    for(const k in keyChordDurations){
+      if(keyChordDurations[k] > bestDuration){ bestDuration = keyChordDurations[k]; bestKey = k; }
+    }
+    if(bestKey && bestDuration > KEY_MIN_CONFIDENT_SECONDS){
+      const [r, q] = bestKey.split(':');
+      detectedKey = { root: +r, quality: q };
+      keyDisplay.textContent = 'key: ' + NOTE_NAMES[detectedKey.root] + (detectedKey.quality === 'maj' ? ' major' : ' minor');
+      harmonyStatus.textContent = 'key known — harmony will play a diatonic interval above the melody';
+    }
+  }
+
+  function resetChordLock(){
+    lastChordKey = null;
+    candidateChordKey = null;
+    candidateChordStreak = 0;
+    chromaHistory = []; // don't let a real silence gap blend into the next chord's onset
+    chordName.textContent = '--';
+    chordName.classList.add('silent');
+    chordConfidence.textContent = '-- match';
+  }
+
+  function handleChordFrame(freqData, sampleRate, fftSize){
+    const chromaMaxFreq = appMode === 'split' ? splitHz() : CHROMA_MAX_FREQ;
+    const chroma = averageChroma(computeChroma(freqData, sampleRate, fftSize, chromaMaxFreq));
+    const energy = chroma.reduce((a,b) => a+b, 0);
+    if(energy < CHROMA_SILENCE_ENERGY){
+      if(lastChordKey){
+        const [pr, pq] = lastChordKey.split(':');
+        logEvent('chord-off', NOTE_NAMES[+pr] + (pq === 'maj' ? '' : 'm'));
+      }
+      noteKeyChordTransition(null);
+      noteLooperChordTransition(null);
+      resetChordLock();
+      chordConfidence.textContent = 'energy ' + energy.toFixed(3);
+      if(!sustainEnabled && !looperPlaying){
+        bandChordKey = null;
+        if(appMode === 'band' || appMode === 'split') stopBandEngine();
+      }
+      refreshKeyboardVisual();
+      return;
+    }
+
+    const {root, quality, score} = matchChord(chroma);
+    // live best-guess readout, shown even before/without a lock, so thresholds can be tuned against real numbers
+    const liveLabel = NOTE_NAMES[root] + (quality === 'maj' ? '' : 'm') + ' ' + Math.round(score*100) + '%';
+
+    if(score < CHORD_CONFIDENCE_MIN){
+      candidateChordKey = null;
+      candidateChordStreak = 0;
+      chordConfidence.textContent = liveLabel + ' (low, e=' + energy.toFixed(2) + ')';
+      return;
+    }
+
+    const key = root + ':' + quality;
+    if(key === lastChordKey){
+      candidateChordKey = null;
+      candidateChordStreak = 0;
+    } else if(key === candidateChordKey){
+      candidateChordStreak++;
+      if(candidateChordStreak >= CHORD_LOCK_FRAMES){
+        lastChordKey = key;
+        candidateChordKey = null;
+        candidateChordStreak = 0;
+        if(!looperPlaying) bandChordKey = key; // a playing loop owns bandChordKey — live detection shouldn't fight it
+        logEvent('chord-on', NOTE_NAMES[root] + (quality === 'maj' ? '' : 'm'));
+        noteKeyChordTransition(key);
+        noteLooperChordTransition(key);
+        if((appMode === 'band' || appMode === 'split') && !looperPlaying){
+          if(bandSchedulerTimer) queuedFill = true; // already playing — treat a chord change as an automatic fill trigger, not just the manual button
+          startBandEngine(); // no-op if already running; sync-starts if this is the first chord after silence
+        }
+      }
+    } else {
+      candidateChordKey = key;
+      candidateChordStreak = 1;
+    }
+
+    if(lastChordKey){
+      const [r, q] = lastChordKey.split(':');
+      chordName.textContent = NOTE_NAMES[+r] + (q === 'maj' ? '' : 'm');
+      chordName.classList.remove('silent');
+      chordConfidence.textContent = Math.round(score*100) + '% match';
+    } else {
+      chordConfidence.textContent = liveLabel + ' (locking...)';
+    }
+    refreshKeyboardVisual();
+  }
+
+  // switching instruments mid-note stops the current voice cleanly rather than
+  // live-swapping the timbre under a sustained note — simpler and safer than
+  // trying to hot-swap a sounding Tone voice; release+re-press picks up the new one
+  function setInstrument(key){
+    currentInstrumentKey = key;
+    Object.entries(instrumentButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===key));
+    stopVoice();
+    stopHarmonyVoice();
+    const amount = voiceReverbAmounts[key];
+    voiceReverbSlider.value = Math.round(amount*100);
+    voiceReverbValue.textContent = voiceReverbSlider.value + '%';
+    if(voiceReverb) voiceReverb.wet.value = amount;
+  }
+  Object.entries(instrumentButtons).forEach(([key, btn]) => { btn.onclick = () => setInstrument(key); });
+
+  async function listInputDevices(){
+    try{
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter(d => d.kind === 'audioinput');
+      deviceSelect.innerHTML = '';
+      inputs.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || 'Audio input';
+        deviceSelect.appendChild(opt);
+      });
+      deviceSelect.disabled = false;
+    }catch(e){ /* labels need permission first; fine to skip silently */ }
+  }
+
+  // --- vocal-mic auto-ducking: a second, independent getUserMedia stream on
+  // the SAME AudioContext (no server/second device needed — just a second mic
+  // input in this same tab). Its only job is level detection: it's tapped into
+  // an AnalyserNode and never connected onward to any output, so it's never
+  // itself audible or mixed into the program.
+  const ledVocal = document.getElementById('led-vocal');
+  const vocalStatus = document.getElementById('vocal-status');
+  const btnConnectVocal = document.getElementById('btn-connect-vocal');
+  const vocalDeviceSelect = document.getElementById('vocal-device-select');
+  let vocalAnalyser = null, vocalDataArray = null;
+  let duckFactor = 1; // 1 = no ducking, lower while the vocal mic is active
+  const VOCAL_DUCK_RMS_THRESHOLD = 0.02; // rough "someone's singing/speaking" threshold — retune by ear
+  const VOCAL_DUCK_AMOUNT = 0.35; // accompaniment drops to this fraction of normal while ducking
+  const DUCK_SMOOTHING_DOWN = 0.6; // faster attack into the duck
+  const DUCK_SMOOTHING_UP = 0.95; // slower release back to normal — avoids pumping/flutter on brief gaps in speech
+
+  async function listVocalInputDevices(){
+    try{
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const inputs = devices.filter(d => d.kind === 'audioinput');
+      vocalDeviceSelect.innerHTML = '';
+      inputs.forEach(d => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || 'Audio input';
+        vocalDeviceSelect.appendChild(opt);
+      });
+      vocalDeviceSelect.disabled = false;
+    }catch(e){ /* labels need permission first; fine to skip silently */ }
+  }
+
+  btnConnectVocal.onclick = async () => {
+    if(!audioCtx){
+      vocalStatus.textContent = 'connect the main input first';
+      return;
+    }
+    try{
+      btnConnectVocal.disabled = true;
+      btnConnectVocal.textContent = 'Connecting...';
+      const constraints = {
+        audio: {
+          echoCancellation: false, noiseSuppression: false, autoGainControl: false,
+          deviceId: vocalDeviceSelect.value && vocalDeviceSelect.value !== 'select mic device...' ? {exact: vocalDeviceSelect.value} : undefined
+        }
+      };
+      const vocalStream = await navigator.mediaDevices.getUserMedia(constraints);
+      await listVocalInputDevices();
+      const vocalSource = audioCtx.createMediaStreamSource(vocalStream);
+      vocalAnalyser = audioCtx.createAnalyser();
+      vocalAnalyser.fftSize = 1024;
+      vocalDataArray = new Float32Array(vocalAnalyser.fftSize);
+      vocalSource.connect(vocalAnalyser);
+
+      ledVocal.classList.add('live');
+      vocalStatus.textContent = 'vocal mic live — accompaniment at normal level';
+      btnConnectVocal.textContent = 'Reconnect Vocal Mic';
+      btnConnectVocal.disabled = false;
+    }catch(err){
+      vocalStatus.textContent = 'vocal mic connection failed: ' + err.message;
+      btnConnectVocal.textContent = 'Connect Vocal Mic';
+      btnConnectVocal.disabled = false;
+    }
+  };
+
+  function updateVocalDucking(){
+    if(!vocalAnalyser) return;
+    vocalAnalyser.getFloatTimeDomainData(vocalDataArray);
+    let sum = 0;
+    for(let i=0; i<vocalDataArray.length; i++) sum += vocalDataArray[i]*vocalDataArray[i];
+    const vocalRms = Math.sqrt(sum/vocalDataArray.length);
+    const target = vocalRms > VOCAL_DUCK_RMS_THRESHOLD ? VOCAL_DUCK_AMOUNT : 1;
+    const smoothing = target < duckFactor ? DUCK_SMOOTHING_DOWN : DUCK_SMOOTHING_UP;
+    duckFactor = duckFactor*smoothing + target*(1-smoothing);
+    if(bandAudioOutput) bandAudioOutput.gain.rampTo(duckFactor, 0.05);
+    vocalStatus.textContent = 'vocal mic live' + (duckFactor < 0.9 ? ' — ducking' : ' — accompaniment at normal level');
+  }
+
+  btnConnect.onclick = async () => {
+    try{
+      btnConnect.disabled = true;
+      btnConnect.textContent = 'Connecting...';
+      const constraints = {
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+          deviceId: deviceSelect.value && deviceSelect.value !== 'select input device...' ? {exact: deviceSelect.value} : undefined
+        }
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      await listInputDevices();
+
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      sourceNode = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.85; // extra frequency-domain smoothing to steady the chroma vector (doesn't affect the time-domain waveform draw)
+      bufferLength = analyser.fftSize;
+      dataArray = new Float32Array(bufferLength);
+      freqDataArray = new Float32Array(analyser.frequencyBinCount);
+      sourceNode.connect(analyser);
+
+      // pitch analysis runs on the audio rendering thread, decoupled from rAF/visual timing
+      await audioCtx.audioWorklet.addModule('pitch-processor.js');
+      pitchNode = new AudioWorkletNode(audioCtx, 'pitch-processor');
+      const silentSink = audioCtx.createGain();
+      silentSink.gain.value = 0;
+      sourceNode.connect(pitchNode).connect(silentSink).connect(audioCtx.destination);
+      // full-range pitch detector: drives Mirror/Band mode as before
+      pitchNode.port.onmessage = (e) => { if(appMode !== 'split') handlePitchFrame(e.data); };
+
+      // Register Split's melody detector: same worklet module, but fed through a
+      // highpass filter above the split point first, so YIN isn't confused by a
+      // simultaneous low chord's fundamental — a real frequency-band separation,
+      // not true multi-note tracking. Always created (cheap), only routed when split is active.
+      melodyHighpass = audioCtx.createBiquadFilter();
+      melodyHighpass.type = 'highpass';
+      melodyHighpass.frequency.value = splitHz();
+      melodyPitchNode = new AudioWorkletNode(audioCtx, 'pitch-processor');
+      const melodySilentSink = audioCtx.createGain();
+      melodySilentSink.gain.value = 0;
+      sourceNode.connect(melodyHighpass).connect(melodyPitchNode).connect(melodySilentSink).connect(audioCtx.destination);
+      melodyPitchNode.port.onmessage = (e) => { if(appMode === 'split') handlePitchFrame(e.data); };
+
+      // Tone.js voices share our existing AudioContext/destination — one audio
+      // graph, not two contexts racing each other
+      Tone.setContext(audioCtx);
+      await Tone.start();
+      voiceOutput = new Tone.Gain(0.35).connect(Tone.getDestination());
+      bandAudioOutput = new Tone.Gain(1).connect(Tone.getDestination());
+      voiceReverb = new Tone.Reverb({ decay: 2.5, wet: voiceReverbAmounts[currentInstrumentKey] }).connect(voiceOutput);
+      voiceReverbSlider.value = Math.round(voiceReverbAmounts[currentInstrumentKey]*100);
+      voiceReverbValue.textContent = voiceReverbSlider.value + '%';
+
+      // multi-track recording taps — each is a fan-out from the live signal, so
+      // recording doesn't affect what's actually heard
+      const inputRecordDest = audioCtx.createMediaStreamDestination();
+      sourceNode.connect(inputRecordDest);
+      const mirrorRecordDest = audioCtx.createMediaStreamDestination();
+      voiceOutput.connect(mirrorRecordDest);
+      const bandRecordDest = audioCtx.createMediaStreamDestination();
+      bandAudioOutput.connect(bandRecordDest);
+      startTrackRecorder('input', inputRecordDest.stream);
+      startTrackRecorder('mirror', mirrorRecordDest.stream);
+      startTrackRecorder('band', bandRecordDest.stream);
+      trackRecordStatus.textContent = 'recording — input / mirror / band';
+
+      sessionLog = [];
+      sessionStartTime = performance.now();
+      sessionLogStatus.textContent = 'recording — 0 events';
+
+      ledInput.classList.add('live');
+      inputStatus.textContent = 'signal live — listening on ' + (audioCtx.sampleRate) + 'Hz';
+      btnConnect.textContent = 'Reconnect';
+      btnConnect.disabled = false;
+      document.getElementById('chart-url').textContent = window.location.protocol + '//' + window.location.hostname + ':' + window.location.port + '/chart.html';
+
+      requestAnimationFrame(drawWaveform);
+    }catch(err){
+      ledInput.classList.add('warn');
+      inputStatus.textContent = 'connection failed: ' + err.message;
+      btnConnect.textContent = 'Connect Aux Input';
+      btnConnect.disabled = false;
+    }
+  };
+
+  function freqToMidi(f){ return 69 + 12 * Math.log2(f/440); }
+  function midiToNoteName(m){
+    const rounded = Math.round(m);
+    const name = NOTE_NAMES[((rounded % 12)+12)%12];
+    const octave = Math.floor(rounded/12) - 1;
+    return {name: name+octave, midi: rounded};
+  }
+  function midiToFreq(m){ return 440 * Math.pow(2, (m-69)/12); }
+
+  function drawScope(buf){
+    scopeCtx.clearRect(0,0,scope.width, scope.height);
+    scopeCtx.strokeStyle = '#e8a13a';
+    scopeCtx.lineWidth = 1.5;
+    scopeCtx.beginPath();
+    const step = buf.length / scope.width;
+    for(let x=0; x<scope.width; x++){
+      const v = buf[Math.floor(x*step)];
+      const y = (0.5 - v*0.45) * scope.height;
+      if(x===0) scopeCtx.moveTo(x,y); else scopeCtx.lineTo(x,y);
+    }
+    scopeCtx.stroke();
+  }
+
+  function startVoice(freq){
+    if(currentInstrumentKey === 'off') return;
+    stopVoice();
+    currentVoiceInstance = INSTRUMENTS[currentInstrumentKey]();
+    currentVoiceInstance.triggerAttack(transposeFreq(freq));
+    ledVoice.classList.add('live');
+  }
+
+  function updateVoiceFreq(freq){
+    if(!currentVoiceInstance) return;
+    currentVoiceInstance.setFrequency(transposeFreq(freq));
+  }
+
+  function stopVoice(){
+    if(currentVoiceInstance){
+      currentVoiceInstance.triggerRelease();
+      const toDispose = currentVoiceInstance;
+      setTimeout(() => toDispose.dispose(), 1500); // let the release tail finish before tearing down the node
+      currentVoiceInstance = null;
+    }
+    ledVoice.classList.remove('live');
+  }
+
+  // --- auto-harmony on the melody: adds a diatonic third/fifth above the
+  // mirrored note, using the detected key's actual scale (not a fixed +4/+7
+  // semitones) so the harmony stays in key rather than parroting a fixed
+  // interval that would sound wrong on half the scale degrees. Only sounds
+  // once a key has actually been detected — no shortcuts pretending to know
+  // the key before we do.
+  const KEY_SCALE_INTERVALS = { maj: [0,2,4,5,7,9,11], min: [0,2,3,5,7,8,10] };
+  const harmonyButtons = {
+    off: document.getElementById('harmony-off'),
+    third: document.getElementById('harmony-third'),
+    fifth: document.getElementById('harmony-fifth'),
+  };
+  const harmonyStatus = document.getElementById('harmony-status');
+  let harmonyMode = 'off';
+  let harmonyVoiceInstance = null;
+
+  function setHarmonyMode(m){
+    harmonyMode = m;
+    Object.entries(harmonyButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===m));
+    if(m === 'off') stopHarmonyVoice();
+  }
+  harmonyButtons.off.onclick = () => setHarmonyMode('off');
+  harmonyButtons.third.onclick = () => setHarmonyMode('third');
+  harmonyButtons.fifth.onclick = () => setHarmonyMode('fifth');
+
+  // --- auto key-transpose: shifts audio OUTPUT only (mirror voice, harmony,
+  // band bass/pad) by a semitone offset, so a different vocalist's range can be
+  // matched without the player needing to relearn chords in a new key. Display
+  // (note/chord readouts) intentionally stays untransposed — it always reflects
+  // what was actually played, so the player's own mental model never has to
+  // shift. Drums stay untransposed too since they're not tonal.
+  let transposeSemitones = 0;
+  const TRANSPOSE_MIN = -6, TRANSPOSE_MAX = 6;
+  const transposeDisplay = document.getElementById('transpose-display');
+  function transposeFreq(freq){ return freq * Math.pow(2, transposeSemitones/12); }
+  function setTranspose(n){
+    transposeSemitones = Math.max(TRANSPOSE_MIN, Math.min(TRANSPOSE_MAX, n));
+    transposeDisplay.textContent = 'Transpose: ' + (transposeSemitones >= 0 ? '+' : '') + transposeSemitones + ' st';
+  }
+  document.getElementById('transpose-down').onclick = () => setTranspose(transposeSemitones - 1);
+  document.getElementById('transpose-up').onclick = () => setTranspose(transposeSemitones + 1);
+
+  // --- chord looper: record a chord progression once (reusing the same
+  // chord-transition hook points as key detection/session log — just another
+  // consumer of "a chord changed"), then loop it hands-free so the player can
+  // solo or step away from the chord register entirely. While a loop is
+  // playing, it owns bandChordKey — live chord detection still updates the
+  // display (so you can still see what you're playing) but doesn't fight the
+  // loop for control of the band engine (see the two `!looperPlaying` guards
+  // in handleChordFrame).
+  let looperRecording = false;
+  let looperPlaying = false;
+  let looperSequence = []; // [{key, duration}]
+  let looperActiveKey = null;
+  let looperActiveSince = null;
+  let looperPlaybackTimer = null;
+  let looperPlaybackIndex = 0;
+  const looperStatus = document.getElementById('looper-status');
+  const btnLooperRecord = document.getElementById('btn-looper-record');
+  const btnLooperPlay = document.getElementById('btn-looper-play');
+  const btnLooperClear = document.getElementById('btn-looper-clear');
+
+  function noteLooperChordTransition(newKey){
+    if(!looperRecording) return;
+    const now = performance.now();
+    if(looperActiveKey){
+      looperSequence.push({ key: looperActiveKey, duration: (now-looperActiveSince)/1000 });
+    }
+    looperActiveKey = newKey;
+    looperActiveSince = newKey ? now : null;
+  }
+
+  btnLooperRecord.onclick = () => {
+    if(looperRecording){
+      // stop recording — finalize whatever chord was still active
+      if(looperActiveKey){
+        looperSequence.push({ key: looperActiveKey, duration: (performance.now()-looperActiveSince)/1000 });
+      }
+      looperRecording = false;
+      looperActiveKey = null;
+      looperActiveSince = null;
+      btnLooperRecord.textContent = 'Record';
+      const total = looperSequence.reduce((a,s) => a+s.duration, 0);
+      looperStatus.textContent = looperSequence.length + ' chord(s) recorded, ' + total.toFixed(1) + 's total';
+    } else {
+      stopLooperPlayback();
+      looperRecording = true;
+      looperSequence = [];
+      looperActiveKey = lastChordKey; // pick up a chord already being held when Record is pressed
+      looperActiveSince = lastChordKey ? performance.now() : null;
+      btnLooperRecord.textContent = 'Stop Recording';
+      btnLooperPlay.textContent = 'Play Loop';
+      looperStatus.textContent = 'recording...';
+    }
+  };
+
+  function playLooperStep(){
+    if(!looperPlaying || looperSequence.length === 0) return;
+    const step = looperSequence[looperPlaybackIndex];
+    bandChordKey = step.key;
+    if(appMode === 'band' || appMode === 'split') startBandEngine();
+    looperPlaybackTimer = setTimeout(() => {
+      looperPlaybackIndex = (looperPlaybackIndex+1) % looperSequence.length;
+      playLooperStep();
+    }, Math.max(200, step.duration*1000)); // 200ms floor so a near-zero-duration recorded blip can't spin the loop
+  }
+  function stopLooperPlayback(){
+    looperPlaying = false;
+    if(looperPlaybackTimer){ clearTimeout(looperPlaybackTimer); looperPlaybackTimer = null; }
+    btnLooperPlay.textContent = 'Play Loop';
+  }
+
+  btnLooperPlay.onclick = () => {
+    if(looperPlaying){
+      stopLooperPlayback();
+    } else if(looperSequence.length > 0){
+      looperPlaying = true;
+      looperPlaybackIndex = 0;
+      btnLooperPlay.textContent = 'Stop Loop';
+      playLooperStep();
+    }
+  };
+
+  btnLooperClear.onclick = () => {
+    stopLooperPlayback();
+    looperRecording = false;
+    looperSequence = [];
+    looperActiveKey = null;
+    looperActiveSince = null;
+    btnLooperRecord.textContent = 'Record';
+    looperStatus.textContent = 'nothing recorded — hit Record and play a progression';
+  };
+
+  // --- named song sections: Intro/Ending get real behavioral differences
+  // (forced sparse texture / graceful stop-on-next-bar); Main A and Main B
+  // deliberately share the same groove for now — distinct per-section grooves
+  // would need real authoring effort, not implied by just adding a button
+  let currentSection = 'mainA';
+  let sectionIntensityOverride = null;
+  let endingPending = false;
+  const sectionButtons = {
+    intro: document.getElementById('section-intro'),
+    mainA: document.getElementById('section-mainA'),
+    mainB: document.getElementById('section-mainB'),
+    ending: document.getElementById('section-ending'),
+  };
+  function setSection(name){
+    currentSection = name;
+    Object.entries(sectionButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===name));
+    if(name === 'intro'){
+      sectionIntensityOverride = 0.1; // forced sparse — quiet, hihat dropped, regardless of actual playing intensity
+      endingPending = false;
+    } else if(name === 'ending'){
+      sectionIntensityOverride = null;
+      queuedFill = true; // one last fill on the way out
+      endingPending = true; // scheduleStep stops the engine cleanly after that fill bar completes
+    } else {
+      sectionIntensityOverride = null;
+      endingPending = false;
+    }
+  }
+  Object.entries(sectionButtons).forEach(([key, btn]) => { btn.onclick = () => setSection(key); });
+
+  function diatonicHarmonyMidi(melodyMidi, key, degreesUp){
+    const scale = KEY_SCALE_INTERVALS[key.quality];
+    const melodyPc = ((melodyMidi % 12) + 12) % 12;
+    const relPc = ((melodyPc - key.root) + 12) % 12;
+    const degreeIndex = scale.indexOf(relPc);
+    if(degreeIndex === -1){
+      // melody note isn't in the detected scale (passing/chromatic tone) — fall
+      // back to a fixed interval rather than guessing a wrong scale degree
+      return melodyMidi + (degreesUp === 2 ? 4 : 7);
+    }
+    const targetIndex = degreeIndex + degreesUp;
+    const wraps = Math.floor(targetIndex / scale.length);
+    const targetDegree = ((targetIndex % scale.length) + scale.length) % scale.length;
+    const targetPc = (key.root + scale[targetDegree]) % 12;
+    const melodyOctaveBase = melodyMidi - melodyPc; // MIDI number of this octave's C
+    return melodyOctaveBase + targetPc + wraps*12;
+  }
+
+  function harmonyMidiFor(melodyMidi){
+    if(harmonyMode === 'off' || !detectedKey || (appMode !== 'mirror' && appMode !== 'split')) return null;
+    return diatonicHarmonyMidi(melodyMidi, detectedKey, harmonyMode === 'third' ? 2 : 4);
+  }
+
+  function startHarmonyVoice(melodyMidi){
+    const targetMidi = harmonyMidiFor(melodyMidi);
+    if(targetMidi === null) return;
+    stopHarmonyVoice();
+    harmonyVoiceInstance = INSTRUMENTS[currentInstrumentKey]();
+    harmonyVoiceInstance.triggerAttack(transposeFreq(midiToFreq(targetMidi)));
+  }
+  function updateHarmonyVoice(melodyMidi){
+    const targetMidi = harmonyMidiFor(melodyMidi);
+    if(targetMidi === null){ stopHarmonyVoice(); return; }
+    if(!harmonyVoiceInstance){ startHarmonyVoice(melodyMidi); return; }
+    harmonyVoiceInstance.setFrequency(transposeFreq(midiToFreq(targetMidi)));
+  }
+  function stopHarmonyVoice(){
+    if(harmonyVoiceInstance){
+      harmonyVoiceInstance.triggerRelease();
+      const toDispose = harmonyVoiceInstance;
+      setTimeout(() => toDispose.dispose(), 1500);
+      harmonyVoiceInstance = null;
+    }
+  }
+
+  // --- live chord-chart broadcast: POSTs current state to the same-origin
+  // server every second so chart.html, opened on a bandmate's phone on the
+  // same WiFi, can show it. Requires running server.py instead of the plain
+  // `python3 -m http.server` — a bare static server has no /update endpoint
+  // and this fetch will just fail silently (caught, not surfaced as an error).
+  function broadcastChordChart(){
+    if(!audioCtx) return;
+    let chordLabel = '--';
+    if(lastChordKey){
+      const [r, q] = lastChordKey.split(':');
+      chordLabel = NOTE_NAMES[+r] + (q === 'maj' ? '' : 'm');
+    }
+    const payload = {
+      chord: chordLabel,
+      style: STYLES[currentStyle] ? STYLES[currentStyle].label : currentStyle,
+      bpm: currentBpm,
+      mode: appMode,
+      key: detectedKey ? (NOTE_NAMES[detectedKey.root] + (detectedKey.quality === 'maj' ? ' major' : ' minor')) : '--',
+      updatedAt: Date.now(),
+    };
+    fetch('/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) }).catch(()=>{});
+  }
+  setInterval(broadcastChordChart, 1000);
+
+  // waveform display + chroma/chord detection — both ride the same rAF cadence
+  // off the existing AnalyserNode; pitch analysis is separate, on the audio
+  // thread via pitch-processor.js, and arrives through handlePitchFrame
+  function drawWaveform(){
+    analyser.getFloatTimeDomainData(dataArray);
+    drawScope(dataArray);
+
+    analyser.getFloatFrequencyData(freqDataArray);
+    handleChordFrame(freqDataArray, audioCtx.sampleRate, analyser.fftSize);
+
+    updateVocalDucking(); // no-op until a vocal mic is connected
+
+    requestAnimationFrame(drawWaveform);
+  }
+
+  function handlePitchFrame({level, freq}){
+    updateBandIntensity(level); // tracked regardless of freq/mode — a loudness proxy, not tied to mono pitch detection succeeding
+    if(freq == null){
+      noteName.textContent = '--';
+      noteName.classList.add('silent');
+      freqHz.textContent = '0.0 Hz';
+      centsOff.textContent = '-- cents';
+      needle.style.left = '50%';
+      if(lastMidi !== null){ logEvent('note-off', midiToNoteName(lastMidi).name); stopVoice(); stopHarmonyVoice(); lastMidi = null; }
+      resetStability();
+      refreshKeyboardVisual();
+      return;
+    }
+
+    // 1) smooth the raw estimate with a short rolling median —
+    // kills single-frame outliers/jitter before they reach note logic
+    freqHistory.push(freq);
+    if(freqHistory.length > FREQ_HISTORY_LEN) freqHistory.shift();
+    const smoothFreq = medianOf(freqHistory);
+
+    const midiFloat = freqToMidi(smoothFreq);
+    const {midi} = midiToNoteName(midiFloat);
+    const centsFromNote = (midiFloat - midi) * 100;
+    const targetFreq = midiToFreq(midi);
+
+    // 2) debounce note changes — a candidate note must win several
+    // consecutive hops in a row before it's allowed to replace
+    // the currently "locked" note. Stops flicker at boundaries.
+    if(midi === lastMidi){
+      candidateMidi = null;
+      candidateStreak = 0;
+      if(appMode === 'mirror' || appMode === 'split'){ updateVoiceFreq(targetFreq); updateHarmonyVoice(midi); }
+    } else if(midi === candidateMidi){
+      candidateStreak++;
+      if(candidateStreak >= NOTE_LOCK_FRAMES){
+        if(appMode === 'mirror' || appMode === 'split'){ startVoice(targetFreq); startHarmonyVoice(midi); }
+        lastMidi = midi;
+        logEvent('note-on', midiToNoteName(midi).name);
+        candidateMidi = null;
+        candidateStreak = 0;
+      }
+    } else {
+      candidateMidi = midi;
+      candidateStreak = 1;
+    }
+
+    // the displayed letter follows the locked note, not the raw per-hop
+    // candidate — otherwise it flips the instant the rounded pitch tips
+    // across a note boundary, even while the locked/played note hasn't moved
+    if(lastMidi !== null){
+      noteName.textContent = midiToNoteName(lastMidi).name;
+      noteName.classList.remove('silent');
+    }
+    freqHz.textContent = smoothFreq.toFixed(1) + ' Hz';
+    centsOff.textContent = (centsFromNote >= 0 ? '+' : '') + centsFromNote.toFixed(0) + ' cents';
+    needle.style.left = (50 + centsFromNote*0.9) + '%';
+    refreshKeyboardVisual();
+  }
+
+  navigator.mediaDevices?.enumerateDevices().then(() => {}).catch(()=>{});
+  navigator.mediaDevices?.enumerateDevices().then(() => listVocalInputDevices()).catch(()=>{});
+
+  if('serviceWorker' in navigator){
+    navigator.serviceWorker.register('sw.js').catch(() => {}); // installability is a nice-to-have here, not load-bearing — fail silently
+  }
+})();
+</script>
+</body>
+</html>
