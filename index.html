@@ -282,11 +282,20 @@
       <div class="status-text" id="voice-status">mirror playback — detected note plays back live</div>
     </div>
     <div class="subsection-label">Instrument</div>
+    <select id="gm-voice-select" aria-label="General MIDI voice" style="width:100%; margin-bottom:8px; background:var(--panel-raised); color:var(--cream); border:1px solid var(--wire); border-radius:3px; padding:10px; font-family:inherit; font-size:11px;">
+      <option value="">Choose a GM voice (128 sounds)</option>
+    </select>
+    <div class="status-text" style="margin:0 0 8px;">GM names are organized by family; sounds are synthesized approximations, not sampled GM/XG patches.</div>
     <div class="toggle-group grid-3">
       <button id="instr-off" class="active">Off</button>
       <button id="instr-piano">Piano</button>
+      <button id="instr-epiano">E. Piano</button>
       <button id="instr-organ">Organ</button>
       <button id="instr-strings">Strings</button>
+      <button id="instr-guitar">Guitar</button>
+      <button id="instr-pickbass">Pick Bass</button>
+      <button id="instr-ocarina">Ocarina</button>
+      <button id="instr-synthlead">Synth Lead</button>
       <button id="instr-choir">Choir</button>
       <button id="instr-brass">Brass</button>
     </div>
@@ -442,7 +451,7 @@
 
 </div>
 
-<!-- pinned version — Tone.js voices are synthesized approximations (Piano/Strings/Choir/Brass), not sampled instruments; real samples are a later swap per the project roadmap -->
+<!-- Pinned Tone.js version; quick voices and GM-family voices are synthesized approximations, not sampled patches. -->
 <script src="https://cdn.jsdelivr.net/npm/tone@15.1.22/build/Tone.js"></script>
 <script>
 (() => {
@@ -460,9 +469,8 @@
   const chordName = document.getElementById('chord-name');
   const chordConfidence = document.getElementById('chord-confidence');
 
-  // --- style / tempo / sustain / fill: Phase 2 state + UI, wired for the Phase 3
-  // auto-band engine to read directly (currentStyle, currentBpm, sustainEnabled) —
-  // no observable audio yet since there's no accompaniment engine to drive
+  // --- style / tempo / sustain / fill state, consumed by the auto-band engine
+  // (currentStyle, currentBpm, sustainEnabled are shared runtime settings).
   const STYLES = {
     gospel:  { label: 'Gospel Shuffle', bpm: 96 },
     ballad:  { label: 'Ballad', bpm: 68 },
@@ -483,6 +491,11 @@
 
   let currentStyle = 'gospel';
   let currentBpm = STYLES.gospel.bpm;
+  const MIN_BPM = 40, MAX_BPM = 240;
+  function clampBpm(value, fallback = currentBpm){
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? Math.max(MIN_BPM, Math.min(MAX_BPM, Math.round(numeric))) : fallback;
+  }
   let sustainEnabled = false;
   let metronomeTimer = null;
 
@@ -518,7 +531,7 @@
       const intervals = [];
       for(let i=1;i<tapTimes.length;i++) intervals.push(tapTimes[i]-tapTimes[i-1]);
       const avgMs = intervals.reduce((a,b)=>a+b, 0) / intervals.length;
-      currentBpm = Math.round(60000/avgMs);
+      currentBpm = clampBpm(60000/avgMs);
       bpmDisplay.textContent = currentBpm + ' BPM (tapped)';
       restartMetronome();
     }
@@ -553,20 +566,29 @@
   function loadJSON(key, fallback){
     try{ const v = JSON.parse(localStorage.getItem(key)); return v || fallback; }catch(e){ return fallback; }
   }
-  let registrations = loadJSON(REGISTRATIONS_STORAGE_KEY, []);
-  let setlist = loadJSON(SETLIST_STORAGE_KEY, []);
+  const storedRegistrations = loadJSON(REGISTRATIONS_STORAGE_KEY, []);
+  const storedSetlist = loadJSON(SETLIST_STORAGE_KEY, []);
+  let registrations = Array.isArray(storedRegistrations) ? storedRegistrations.filter(entry =>
+    entry && typeof entry.name === 'string' && entry.settings && typeof entry.settings === 'object'
+  ) : [];
+  let setlist = Array.isArray(storedSetlist) ? storedSetlist.filter(entry =>
+    entry && typeof entry.name === 'string' && entry.settings && typeof entry.settings === 'object'
+  ) : [];
   let setlistIndex = -1;
 
   function captureCurrentSettings(){
     return { instrument: currentInstrumentKey, style: currentStyle, bpm: currentBpm, sustain: sustainEnabled };
   }
   function applySettings(settings){
-    setInstrument(settings.instrument);
-    setStyle(settings.style);
-    currentBpm = settings.bpm; // setStyle() just reset this to the style default; override with the saved value in case tap tempo customized it
+    settings = settings && typeof settings === 'object' ? settings : {};
+    const instrument = settings.instrument === 'off' || Object.prototype.hasOwnProperty.call(INSTRUMENTS, settings.instrument) ? settings.instrument : 'off';
+    const style = Object.prototype.hasOwnProperty.call(STYLES, settings.style) ? settings.style : 'gospel';
+    setInstrument(instrument);
+    setStyle(style);
+    currentBpm = clampBpm(settings.bpm, STYLES[style].bpm); // preserve a valid tapped tempo, otherwise use the style default
     bpmDisplay.textContent = currentBpm + ' BPM';
     restartMetronome();
-    sustainEnabled = settings.sustain;
+    sustainEnabled = settings.sustain === true;
     btnSustain.textContent = 'Sustain: ' + (sustainEnabled ? 'On' : 'Off');
   }
 
@@ -681,7 +703,10 @@
   // (verse/chorus-style) — genuinely different from Registrations, which is a
   // named, browsable list. Reuses the same capture/apply helpers.
   const SCENES_STORAGE_KEY = 'auxkeys.scenes';
-  let scenes = loadJSON(SCENES_STORAGE_KEY, { a: null, b: null });
+  const storedScenes = loadJSON(SCENES_STORAGE_KEY, null);
+  let scenes = storedScenes && typeof storedScenes === 'object' && !Array.isArray(storedScenes)
+    ? { a: storedScenes.a || null, b: storedScenes.b || null }
+    : { a: null, b: null };
   const sceneStatus = document.getElementById('scene-status');
 
   function saveScene(slot){
@@ -724,7 +749,7 @@
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
   btnLogClear.onclick = () => {
@@ -740,16 +765,32 @@
   const btnTrackInput = document.getElementById('btn-track-input');
   const btnTrackMirror = document.getElementById('btn-track-mirror');
   const btnTrackBand = document.getElementById('btn-track-band');
-  const RECORDER_MIME = (window.MediaRecorder && MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) ? 'audio/webm;codecs=opus' : '';
+  const RECORDER_MIME = (window.MediaRecorder && typeof window.MediaRecorder.isTypeSupported === 'function' && window.MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) ? 'audio/webm;codecs=opus' : '';
   let trackRecorders = { input: null, mirror: null, band: null };
   let trackChunks = { input: [], mirror: [], band: [] };
+  const trackButtons = { input: btnTrackInput, mirror: btnTrackMirror, band: btnTrackBand };
+  Object.values(trackButtons).forEach(button => { button.disabled = true; });
 
   function startTrackRecorder(key, stream){
-    trackChunks[key] = [];
-    const rec = new MediaRecorder(stream, RECORDER_MIME ? {mimeType: RECORDER_MIME} : undefined);
-    rec.ondataavailable = (e) => { if(e.data && e.data.size > 0) trackChunks[key].push(e.data); };
-    rec.start();
-    trackRecorders[key] = rec;
+    if(!window.MediaRecorder){
+      trackButtons[key].disabled = true;
+      trackRecordStatus.textContent = 'audio recording unavailable in this browser';
+      return false;
+    }
+    try{
+      trackChunks[key] = [];
+      const rec = new window.MediaRecorder(stream, RECORDER_MIME ? {mimeType: RECORDER_MIME} : undefined);
+      rec.ondataavailable = (e) => { if(e.data && e.data.size > 0) trackChunks[key].push(e.data); };
+      rec.start();
+      trackRecorders[key] = rec;
+      trackButtons[key].disabled = false;
+      return true;
+    }catch(err){
+      trackRecorders[key] = null;
+      trackButtons[key].disabled = true;
+      trackRecordStatus.textContent = 'audio recording unavailable: ' + err.message;
+      return false;
+    }
   }
 
   function downloadTrack(key){
@@ -765,21 +806,31 @@
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      startTrackRecorder(key, stream); // resume a fresh segment immediately so nothing after this point is lost
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      // Resume only if the session is still alive. Reconnecting/closing while
+      // a segment is finalizing must not create a recorder on the old stream.
+      if(audioCtx && audioCtx.state !== 'closed' && stream.active){
+        startTrackRecorder(key, stream);
+      }
     };
-    rec.stop();
+    try{ rec.stop(); }catch(err){ trackRecordStatus.textContent = 'could not finish ' + key + ' recording: ' + err.message; }
   }
 
   btnTrackInput.onclick = () => downloadTrack('input');
   btnTrackMirror.onclick = () => downloadTrack('mirror');
   btnTrackBand.onclick = () => downloadTrack('band');
 
+  const gmVoiceSelect = document.getElementById('gm-voice-select');
   const instrumentButtons = {
     off: document.getElementById('instr-off'),
     piano: document.getElementById('instr-piano'),
+    epiano: document.getElementById('instr-epiano'),
     organ: document.getElementById('instr-organ'),
     strings: document.getElementById('instr-strings'),
+    guitar: document.getElementById('instr-guitar'),
+    pickbass: document.getElementById('instr-pickbass'),
+    ocarina: document.getElementById('instr-ocarina'),
+    synthlead: document.getElementById('instr-synthlead'),
     choir: document.getElementById('instr-choir'),
     brass: document.getElementById('instr-brass'),
   };
@@ -970,7 +1021,7 @@
     const normalized = Math.min(1, level / INTENSITY_REFERENCE_RMS);
     const shaped = TOUCH_CURVES[touchCurve](normalized);
     bandIntensity = bandIntensity * INTENSITY_SMOOTHING + shaped * (1 - INTENSITY_SMOOTHING);
-    if(voiceOutput) voiceOutput.gain.rampTo((MIRROR_GAIN_MIN + bandIntensity * (MIRROR_GAIN_MAX-MIRROR_GAIN_MIN)) * duckFactor, 0.05);
+    if(voiceOutput) voiceOutput.gain.rampTo(MIRROR_GAIN_MIN + bandIntensity * (MIRROR_GAIN_MAX-MIRROR_GAIN_MIN), 0.05);
   }
   function effectiveIntensity(){
     // song sections can override the live playing-intensity signal — Intro
@@ -981,10 +1032,12 @@
     return Math.max(0.35, effectiveIntensity()); // floor so quiet playing softens the band rather than near-silencing it
   }
 
+  let endingFillBarCompleted = false;
+
   function scheduleStep(step, time){
     const pattern = STYLE_PATTERNS[currentStyle];
-    const isFillBar = queuedFill && step >= 12; // swap in the fill variant for the last beat of the bar
-    const snarePattern = isFillBar ? pattern.fillSnare : pattern.snare;
+    const isFillStep = queuedFill && step >= 12; // swap in the fill variant for the last beat of the bar
+    const snarePattern = isFillStep ? pattern.fillSnare : pattern.snare;
     const velocity = bandVelocity();
 
     if(pattern.kick[step]) bandKick.triggerAttackRelease('C1', '16n', humanize(time), velocity);
@@ -995,9 +1048,21 @@
     if(bassNote && bandChordKey) bandBass.triggerAttackRelease(bassNoteFreq(bassNote, 2), '8n', humanize(time), velocity);
 
     if(step === 0){
-      if(isFillBar) queuedFill = false;
-      if(endingPending){ endingPending = false; stopBandEngine(); return; } // let the fill bar finish, then stop cleanly on the downbeat rather than cutting off mid-bar
+      if(endingPending && endingFillBarCompleted){
+        endingPending = false;
+        endingFillBarCompleted = false;
+        stopBandEngine();
+        return; // stop on the downbeat after the ending fill bar has completed
+      }
       updatePadForCurrentChord(time); // pad sustains a chord tone, not a rhythmic hit — no jitter needed
+    }
+
+    // Consume the fill only after scheduling its final 16th note. Previously it
+    // was cleared at step 0 (where isFillStep can never be true), making every
+    // subsequent bar play the fill forever.
+    if(step === 15 && isFillStep){
+      queuedFill = false;
+      if(endingPending) endingFillBarCompleted = true;
     }
   }
 
@@ -1025,10 +1090,9 @@
     padVoicingKey = null;
   }
 
-  // --- mode switcher: pure routing, decides which listener the detected
-  // note is allowed to drive. Chord detection always runs regardless of
-  // mode — it's informational in Mirror, load-bearing once the auto-band
-  // engine (Phase 3) plugs in here for Band mode.
+  // --- mode switcher: routes detected melody and chord state to the
+  // mirror voice, auto-band engine, or both (Register Split). Chord detection
+  // always runs, including in Mirror mode where it remains informational.
   const appModeButtons = {
     mirror: document.getElementById('app-mode-mirror'),
     band: document.getElementById('app-mode-band'),
@@ -1036,6 +1100,9 @@
   };
   const voiceStatus = document.getElementById('voice-status');
   let appMode = 'mirror';
+
+  // Shared pitch-class labels are needed before the split display is initialized.
+  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
   // --- register split state: below splitHz drives chord detection/auto-band
   // (left hand), at/above it drives the melody pitch detector/mirror voice
@@ -1051,7 +1118,6 @@
   }
   document.getElementById('split-down').onclick = () => setSplitMidi(splitMidi - 1);
   document.getElementById('split-up').onclick = () => setSplitMidi(splitMidi + 1);
-  setSplitMidi(splitMidi);
 
   // --- on-screen keyboard: highlights by pitch class only, any octave — a
   // learning aid, not a literal "which key" display, since audio input covers
@@ -1104,6 +1170,7 @@
     appMode = m;
     Object.entries(appModeButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===m));
     Object.values(instrumentButtons).forEach(btn => btn.disabled = (m === 'band'));
+    gmVoiceSelect.disabled = (m === 'band');
 
     if(m === 'band'){
       stopVoice();
@@ -1127,11 +1194,17 @@
   appModeButtons.split.onclick = () => setAppMode('split');
 
   let audioCtx, analyser, sourceNode, pitchNode, dataArray, bufferLength, freqDataArray;
+  let sourceStream = null, animationFrameId = null;
   let melodyPitchNode, melodyHighpass; // Register Split's highpass-filtered second pitch detector
+  setSplitMidi(splitMidi); // initialize after melodyHighpass has been declared (TDZ-safe)
   let voiceOutput = null; // Tone.Gain the mirror instrument voice routes through
   let bandAudioOutput = null; // separate Tone.Gain the band engine routes through — kept apart so each can be recorded as its own track
   let voiceReverb = null; // one shared Tone.Reverb all instrument voices route through — per-instrument "amount" is just its wet value, switched on instrument change; a fresh Reverb per note would be too slow (impulse generation has real startup cost)
-  const VOICE_REVERB_DEFAULTS = { off: 0, piano: 0.2, organ: 0.4, strings: 0.5, choir: 0.6, brass: 0.15 };
+  const VOICE_REVERB_DEFAULTS = {
+    off: 0, piano: 0.2, epiano: 0.25, organ: 0.4, strings: 0.5,
+    guitar: 0.18, pickbass: 0.08, ocarina: 0.28, synthlead: 0.2,
+    choir: 0.6, brass: 0.15, gm: 0.2,
+  };
   let voiceReverbAmounts = {...VOICE_REVERB_DEFAULTS};
   let currentVoiceInstance = null;
   let lastMidi = null;
@@ -1149,6 +1222,85 @@
     return {
       triggerAttack: (freq) => synth.triggerAttack(freq),
       setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.02),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => synth.dispose(),
+    };
+  }
+
+  function makeElectricPianoVoice(){
+    const fundamental = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.004, decay: 0.55, sustain: 0.22, release: 0.65 },
+    }).connect(voiceReverb);
+    const tineGain = new Tone.Gain(0.28).connect(voiceReverb);
+    const tine = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.002, decay: 0.2, sustain: 0.03, release: 0.35 },
+    }).connect(tineGain);
+    return {
+      triggerAttack: (freq) => { fundamental.triggerAttack(freq); tine.triggerAttack(freq*2.01); },
+      setFrequency: (freq) => {
+        fundamental.frequency.setTargetAtTime(freq, Tone.now(), 0.025);
+        tine.frequency.setTargetAtTime(freq*2.01, Tone.now(), 0.025);
+      },
+      triggerRelease: () => { fundamental.triggerRelease(); tine.triggerRelease(); },
+      dispose: () => { fundamental.dispose(); tine.dispose(); tineGain.dispose(); },
+    };
+  }
+
+  function makeGuitarVoice(){
+    const synth = new Tone.MonoSynth({
+      oscillator: { type: 'triangle' },
+      filter: { type: 'lowpass', frequency: 2200, Q: 1, rolloff: -24 },
+      envelope: { attack: 0.003, decay: 0.42, sustain: 0.08, release: 0.2 },
+      filterEnvelope: { attack: 0.002, decay: 0.28, sustain: 0.05, release: 0.12, baseFrequency: 500, octaves: 2.2 },
+    }).connect(voiceReverb);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.025),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => synth.dispose(),
+    };
+  }
+
+  function makePickBassVoice(){
+    const synth = new Tone.MonoSynth({
+      oscillator: { type: 'triangle' },
+      filter: { type: 'lowpass', frequency: 800, Q: 1, rolloff: -24 },
+      envelope: { attack: 0.004, decay: 0.25, sustain: 0.28, release: 0.16 },
+      filterEnvelope: { attack: 0.002, decay: 0.22, sustain: 0.08, release: 0.12, baseFrequency: 110, octaves: 1.5 },
+    }).connect(voiceReverb);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.02),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => synth.dispose(),
+    };
+  }
+
+  function makeOcarinaVoice(){
+    const vibrato = new Tone.Vibrato({ frequency: 4.5, depth: 0.025 }).connect(voiceReverb);
+    const synth = new Tone.Synth({
+      oscillator: { type: 'sine' },
+      envelope: { attack: 0.045, decay: 0.12, sustain: 0.78, release: 0.28 },
+    }).connect(vibrato);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.04),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => { synth.dispose(); vibrato.dispose(); },
+    };
+  }
+
+  function makeSynthLeadVoice(){
+    const synth = new Tone.MonoSynth({
+      oscillator: { type: 'fatsawtooth', count: 3, spread: 12 },
+      envelope: { attack: 0.012, decay: 0.14, sustain: 0.62, release: 0.28 },
+      filterEnvelope: { attack: 0.015, decay: 0.22, sustain: 0.28, release: 0.2, baseFrequency: 420, octaves: 2.5 },
+    }).connect(voiceReverb);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.025),
       triggerRelease: () => synth.triggerRelease(),
       dispose: () => synth.dispose(),
     };
@@ -1219,13 +1371,117 @@
     };
   }
 
+  // Standard General MIDI Level 1 program names, grouped in the canonical
+  // 16 families of eight. Program numbers are stored internally as 0–127 and
+  // displayed to players as 1–128.
+  const GM_PROGRAM_FAMILIES = [
+    { name: 'Pianos', voices: ['Acoustic Grand Piano','Bright Acoustic Piano','Electric Grand Piano','Honky-tonk Piano','Electric Piano 1','Electric Piano 2','Harpsichord','Clavinet'] },
+    { name: 'Chromatic Percussion', voices: ['Celesta','Glockenspiel','Music Box','Vibraphone','Marimba','Xylophone','Tubular Bells','Dulcimer'] },
+    { name: 'Organs', voices: ['Drawbar Organ','Percussive Organ','Rock Organ','Church Organ','Reed Organ','Accordion','Harmonica','Tango Accordion'] },
+    { name: 'Guitars', voices: ['Acoustic Guitar (Nylon)','Acoustic Guitar (Steel)','Electric Guitar (Jazz)','Electric Guitar (Clean)','Electric Guitar (Muted)','Overdriven Guitar','Distortion Guitar','Guitar Harmonics'] },
+    { name: 'Basses', voices: ['Acoustic Bass','Electric Bass (Finger)','Electric Bass (Pick)','Fretless Bass','Slap Bass 1','Slap Bass 2','Synth Bass 1','Synth Bass 2'] },
+    { name: 'Solo Strings & Orchestral', voices: ['Violin','Viola','Cello','Contrabass','Tremolo Strings','Pizzicato Strings','Orchestral Harp','Timpani'] },
+    { name: 'Ensemble', voices: ['String Ensemble 1','String Ensemble 2','Synth Strings 1','Synth Strings 2','Choir Aahs','Voice Oohs','Synth Voice','Orchestra Hit'] },
+    { name: 'Brass', voices: ['Trumpet','Trombone','Tuba','Muted Trumpet','French Horn','Brass Section','Synth Brass 1','Synth Brass 2'] },
+    { name: 'Reed', voices: ['Soprano Sax','Alto Sax','Tenor Sax','Baritone Sax','Oboe','English Horn','Bassoon','Clarinet'] },
+    { name: 'Pipe', voices: ['Piccolo','Flute','Recorder','Pan Flute','Blown Bottle','Shakuhachi','Whistle','Ocarina'] },
+    { name: 'Synth Lead', voices: ['Lead 1 (Square)','Lead 2 (Sawtooth)','Lead 3 (Calliope)','Lead 4 (Chiff)','Lead 5 (Charang)','Lead 6 (Voice)','Lead 7 (Fifths)','Lead 8 (Bass + Lead)'] },
+    { name: 'Synth Pad', voices: ['Pad 1 (New Age)','Pad 2 (Warm)','Pad 3 (Polysynth)','Pad 4 (Choir)','Pad 5 (Bowed Glass)','Pad 6 (Metallic)','Pad 7 (Halo)','Pad 8 (Sweep)'] },
+    { name: 'Synth Effects', voices: ['FX 1 (Rain)','FX 2 (Soundtrack)','FX 3 (Crystal)','FX 4 (Atmosphere)','FX 5 (Brightness)','FX 6 (Goblins)','FX 7 (Echoes)','FX 8 (Sci-Fi)'] },
+    { name: 'Ethnic & World', voices: ['Sitar','Banjo','Shamisen','Koto','Kalimba','Bagpipe','Fiddle','Shanai'] },
+    { name: 'Percussive', voices: ['Tinkle Bell','Agogo','Steel Drums','Woodblock','Taiko Drum','Melodic Tom','Synth Drum','Reverse Cymbal'] },
+    { name: 'Sound Effects', voices: ['Guitar Fret Noise','Breath Noise','Seashore','Bird Tweet','Telephone Ring','Helicopter','Applause','Gunshot'] },
+  ];
+  const GM_VOICES = GM_PROGRAM_FAMILIES.flatMap((family, familyIndex) => family.voices.map((name, variation) => ({
+    name, family: family.name, familyIndex, variation, program: familyIndex*8 + variation, key: 'gm-' + (familyIndex*8 + variation),
+  })));
+
+  const GM_FAMILY_PROFILES = [
+    { waves:['triangle','sine','fatsawtooth'], attack:0.005, decay:0.48, sustain:0.16, release:0.55, cutoff:3200, base:500, octaves:2.0 },
+    { waves:['sine','triangle'], attack:0.002, decay:0.4, sustain:0.04, release:0.3, cutoff:5000, base:900, octaves:1.6 },
+    { waves:['sine','square','triangle'], attack:0.008, decay:0.12, sustain:0.78, release:0.18, cutoff:3500, base:700, octaves:1.0 },
+    { waves:['triangle','sawtooth','fatsawtooth'], attack:0.003, decay:0.36, sustain:0.1, release:0.2, cutoff:2600, base:420, octaves:2.0 },
+    { waves:['triangle','sine','square'], attack:0.003, decay:0.22, sustain:0.28, release:0.15, cutoff:900, base:110, octaves:1.5 },
+    { waves:['sawtooth','triangle'], attack:0.16, decay:0.18, sustain:0.78, release:0.7, cutoff:3400, base:500, octaves:1.8 },
+    { waves:['sawtooth','fatsawtooth','sine'], attack:0.14, decay:0.2, sustain:0.74, release:0.9, cutoff:3000, base:450, octaves:2.0 },
+    { waves:['sawtooth','fatsawtooth','square'], attack:0.025, decay:0.2, sustain:0.62, release:0.3, cutoff:2400, base:350, octaves:2.6 },
+    { waves:['sawtooth','square','triangle'], attack:0.015, decay:0.16, sustain:0.58, release:0.25, cutoff:2800, base:500, octaves:2.2 },
+    { waves:['sine','triangle'], attack:0.035, decay:0.12, sustain:0.68, release:0.28, cutoff:5000, base:800, octaves:1.5 },
+    { waves:['square','sawtooth','fatsawtooth'], attack:0.012, decay:0.14, sustain:0.64, release:0.28, cutoff:3600, base:450, octaves:2.5 },
+    { waves:['sawtooth','sine','fatsawtooth'], attack:0.28, decay:0.2, sustain:0.76, release:1.25, cutoff:3200, base:420, octaves:2.3 },
+    { waves:['sine','triangle','fatsawtooth'], attack:0.04, decay:0.2, sustain:0.5, release:0.65, cutoff:3000, base:500, octaves:2.2 },
+    { waves:['triangle','sawtooth','square'], attack:0.008, decay:0.25, sustain:0.48, release:0.32, cutoff:2600, base:420, octaves:2.0 },
+    { waves:['sine','triangle','square'], attack:0.003, decay:0.32, sustain:0.12, release:0.25, cutoff:4200, base:700, octaves:1.8 },
+    { waves:['sine','triangle','sawtooth'], attack:0.004, decay:0.42, sustain:0.08, release:0.35, cutoff:3200, base:600, octaves:2.0 },
+  ];
+
+  function makeGMVoice(program){
+    // Map the best-known GM counterparts to the app's more carefully shaped
+    // voices; other patches use their family profile with a per-program variant.
+    if(program === 0) return makePianoVoice();
+    if(program === 4 || program === 5) return makeElectricPianoVoice();
+    if(program === 16) return makeOrganVoice();
+    if(program === 24 || program === 27) return makeGuitarVoice();
+    if(program === 34) return makePickBassVoice();
+    if(program === 48) return makeStringsVoice();
+    if(program === 52 || program === 53) return makeChoirVoice();
+    if(program === 56) return makeBrassVoice();
+    if(program === 79) return makeOcarinaVoice();
+    if(program === 81) return makeSynthLeadVoice();
+
+    const familyIndex = Math.floor(program/8);
+    const variation = program%8;
+    const profile = GM_FAMILY_PROFILES[familyIndex];
+    const synth = new Tone.MonoSynth({
+      oscillator: { type: profile.waves[variation % profile.waves.length] },
+      filter: { type:'lowpass', frequency:profile.cutoff*(0.82 + variation*0.055), Q:0.8 + (variation%3)*0.35, rolloff:-24 },
+      envelope: {
+        attack:profile.attack*(0.8 + variation*0.08),
+        decay:profile.decay*(0.78 + variation*0.065),
+        sustain:Math.max(0.02, Math.min(0.9, profile.sustain + (variation-3.5)*0.025)),
+        release:profile.release*(0.82 + variation*0.06),
+      },
+      filterEnvelope: {
+        attack:Math.max(0.002, profile.attack*0.7), decay:profile.decay*0.85, sustain:0.12,
+        release:profile.release*0.7, baseFrequency:profile.base, octaves:profile.octaves,
+      },
+    }).connect(voiceReverb);
+    return {
+      triggerAttack: (freq) => synth.triggerAttack(freq),
+      setFrequency: (freq) => synth.frequency.setTargetAtTime(freq, Tone.now(), 0.03),
+      triggerRelease: () => synth.triggerRelease(),
+      dispose: () => synth.dispose(),
+    };
+  }
+
   const INSTRUMENTS = {
     piano: makePianoVoice,
+    epiano: makeElectricPianoVoice,
     organ: makeOrganVoice,
     strings: makeStringsVoice,
+    guitar: makeGuitarVoice,
+    pickbass: makePickBassVoice,
+    ocarina: makeOcarinaVoice,
+    synthlead: makeSynthLeadVoice,
     choir: makeChoirVoice,
     brass: makeBrassVoice,
   };
+  GM_VOICES.forEach(voice => { INSTRUMENTS[voice.key] = () => makeGMVoice(voice.program); });
+
+  GM_PROGRAM_FAMILIES.forEach((family, familyIndex) => {
+    const group = document.createElement('optgroup');
+    const firstProgram = familyIndex*8 + 1;
+    group.label = String(firstProgram).padStart(3,'0') + '–' + String(firstProgram+7).padStart(3,'0') + ' · ' + family.name;
+    family.voices.forEach((name, variation) => {
+      const program = familyIndex*8 + variation;
+      const option = document.createElement('option');
+      option.value = 'gm-' + program;
+      option.textContent = String(program+1).padStart(3,'0') + ' · ' + name;
+      group.appendChild(option);
+    });
+    gmVoiceSelect.appendChild(group);
+  });
+  gmVoiceSelect.onchange = () => { if(gmVoiceSelect.value) setInstrument(gmVoiceSelect.value); };
 
   // --- stability layer: smooths raw per-frame pitch estimates before
   // they're allowed to change the displayed/played note ---
@@ -1245,8 +1501,6 @@
     candidateMidi = null;
     candidateStreak = 0;
   }
-
-  const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
   // --- chroma / chord detection ---
   // v1 supports major and minor triads only, per worship-context scope decision;
@@ -1350,7 +1604,9 @@
       const [r, q] = bestKey.split(':');
       detectedKey = { root: +r, quality: q };
       keyDisplay.textContent = 'key: ' + NOTE_NAMES[detectedKey.root] + (detectedKey.quality === 'maj' ? ' major' : ' minor');
-      harmonyStatus.textContent = 'key known — harmony will play a diatonic interval above the melody';
+      harmonyStatus.textContent = currentInstrumentKey === 'off'
+        ? 'select a synth instrument to hear harmony'
+        : (harmonyMode === 'off' ? 'key known — choose a harmony interval to enable it' : 'key known — harmony will play a diatonic interval above the melody');
     }
   }
 
@@ -1435,19 +1691,28 @@
   // live-swapping the timbre under a sustained note — simpler and safer than
   // trying to hot-swap a sounding Tone voice; release+re-press picks up the new one
   function setInstrument(key){
+    if(key !== 'off' && !Object.prototype.hasOwnProperty.call(INSTRUMENTS, key)) key = 'off';
     currentInstrumentKey = key;
     Object.entries(instrumentButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===key));
+    gmVoiceSelect.value = key.startsWith('gm-') ? key : '';
     stopVoice();
     stopHarmonyVoice();
-    const amount = voiceReverbAmounts[key];
+    const amount = voiceReverbAmounts[key] ?? (key.startsWith('gm-') ? voiceReverbAmounts.gm : 0);
+    voiceReverbAmounts[key] = amount; // initialize per-GM reverb before an AudioContext is created
     voiceReverbSlider.value = Math.round(amount*100);
     voiceReverbValue.textContent = voiceReverbSlider.value + '%';
     if(voiceReverb) voiceReverb.wet.value = amount;
+    if(harmonyMode !== 'off'){
+      harmonyStatus.textContent = key === 'off'
+        ? 'select a synth instrument to hear harmony'
+        : (detectedKey ? 'key known — harmony will play a diatonic interval above the melody' : 'needs a detected key before it can harmonize correctly');
+    }
   }
   Object.entries(instrumentButtons).forEach(([key, btn]) => { btn.onclick = () => setInstrument(key); });
 
   async function listInputDevices(){
     try{
+      const selectedDeviceId = deviceSelect.value;
       const devices = await navigator.mediaDevices.enumerateDevices();
       const inputs = devices.filter(d => d.kind === 'audioinput');
       deviceSelect.innerHTML = '';
@@ -1457,6 +1722,7 @@
         opt.textContent = d.label || 'Audio input';
         deviceSelect.appendChild(opt);
       });
+      if(inputs.some(device => device.deviceId === selectedDeviceId)) deviceSelect.value = selectedDeviceId;
       deviceSelect.disabled = false;
     }catch(e){ /* labels need permission first; fine to skip silently */ }
   }
@@ -1471,6 +1737,7 @@
   const btnConnectVocal = document.getElementById('btn-connect-vocal');
   const vocalDeviceSelect = document.getElementById('vocal-device-select');
   let vocalAnalyser = null, vocalDataArray = null;
+  let vocalStream = null, vocalSource = null;
   let duckFactor = 1; // 1 = no ducking, lower while the vocal mic is active
   const VOCAL_DUCK_RMS_THRESHOLD = 0.02; // rough "someone's singing/speaking" threshold — retune by ear
   const VOCAL_DUCK_AMOUNT = 0.35; // accompaniment drops to this fraction of normal while ducking
@@ -1479,6 +1746,7 @@
 
   async function listVocalInputDevices(){
     try{
+      const selectedDeviceId = vocalDeviceSelect.value;
       const devices = await navigator.mediaDevices.enumerateDevices();
       const inputs = devices.filter(d => d.kind === 'audioinput');
       vocalDeviceSelect.innerHTML = '';
@@ -1488,6 +1756,7 @@
         opt.textContent = d.label || 'Audio input';
         vocalDeviceSelect.appendChild(opt);
       });
+      if(inputs.some(device => device.deviceId === selectedDeviceId)) vocalDeviceSelect.value = selectedDeviceId;
       vocalDeviceSelect.disabled = false;
     }catch(e){ /* labels need permission first; fine to skip silently */ }
   }
@@ -1500,15 +1769,18 @@
     try{
       btnConnectVocal.disabled = true;
       btnConnectVocal.textContent = 'Connecting...';
+      stopVocalInput();
+      const contextForVocal = audioCtx;
       const constraints = {
         audio: {
           echoCancellation: false, noiseSuppression: false, autoGainControl: false,
           deviceId: vocalDeviceSelect.value && vocalDeviceSelect.value !== 'select mic device...' ? {exact: vocalDeviceSelect.value} : undefined
         }
       };
-      const vocalStream = await navigator.mediaDevices.getUserMedia(constraints);
+      vocalStream = await navigator.mediaDevices.getUserMedia(constraints);
+      if(audioCtx !== contextForVocal) throw new Error('main audio input changed while connecting');
       await listVocalInputDevices();
-      const vocalSource = audioCtx.createMediaStreamSource(vocalStream);
+      vocalSource = audioCtx.createMediaStreamSource(vocalStream);
       vocalAnalyser = audioCtx.createAnalyser();
       vocalAnalyser.fftSize = 1024;
       vocalDataArray = new Float32Array(vocalAnalyser.fftSize);
@@ -1519,6 +1791,8 @@
       btnConnectVocal.textContent = 'Reconnect Vocal Mic';
       btnConnectVocal.disabled = false;
     }catch(err){
+      stopVocalInput();
+      ledVocal.classList.add('warn');
       vocalStatus.textContent = 'vocal mic connection failed: ' + err.message;
       btnConnectVocal.textContent = 'Connect Vocal Mic';
       btnConnectVocal.disabled = false;
@@ -1538,10 +1812,88 @@
     vocalStatus.textContent = 'vocal mic live' + (duckFactor < 0.9 ? ' — ducking' : ' — accompaniment at normal level');
   }
 
+  function stopVocalInput(){
+    if(vocalSource){ try{ vocalSource.disconnect(); }catch(e){} }
+    vocalSource = null;
+    if(vocalStream) vocalStream.getTracks().forEach(track => track.stop());
+    vocalStream = null;
+    vocalAnalyser = null;
+    vocalDataArray = null;
+    duckFactor = 1;
+    if(bandAudioOutput) bandAudioOutput.gain.rampTo(1, 0.05);
+    ledVocal.classList.remove('live','warn');
+    vocalStatus.textContent = 'no vocal mic — accompaniment plays at normal level';
+  }
+
+  async function teardownAudioSession(){
+    if(animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+    try{ stopLooperPlayback(); }catch(e){}
+    if(looperRecording){
+      if(looperActiveKey) looperSequence.push({ key: looperActiveKey, duration: (performance.now()-looperActiveSince)/1000 });
+      looperRecording = false;
+      looperActiveKey = null;
+      looperActiveSince = null;
+      btnLooperRecord.textContent = 'Record';
+      looperStatus.textContent = looperSequence.length + ' chord(s) recorded; input session ended';
+    }
+    try{ stopBandEngine(); }catch(e){}
+    try{ stopVoice(); }catch(e){}
+    try{ stopHarmonyVoice(); }catch(e){}
+    stopVocalInput();
+
+    Object.values(trackRecorders).forEach(rec => {
+      if(rec && rec.state !== 'inactive'){
+        rec.onstop = null; // don't let a pending download handler restart a recorder on the old stream
+        rec.ondataavailable = null; // ignore the old segment's final chunk after a reconnect
+        try{ rec.stop(); }catch(e){}
+      }
+    });
+    trackRecorders = { input: null, mirror: null, band: null };
+    Object.values(trackButtons).forEach(button => { button.disabled = true; });
+    trackRecordStatus.textContent = 'not recording — connect to start';
+    sessionStartTime = null;
+    sessionLogStatus.textContent = 'not recording — connect to start';
+    if(sourceStream) sourceStream.getTracks().forEach(track => track.stop());
+    sourceStream = null;
+
+    const oldContext = audioCtx;
+    audioCtx = null;
+    analyser = null;
+    sourceNode = null;
+    pitchNode = null;
+    melodyPitchNode = null;
+    melodyHighpass = null;
+    voiceOutput = null;
+    bandAudioOutput = null;
+    voiceReverb = null;
+    bandKick = bandSnare = bandHihat = bandBass = bandPad = null;
+    stabOutput = cymbalSwell = choirHitSynth = orchStabSynth = null;
+    lastMidi = null;
+    bandChordKey = null;
+    lastChordKey = null;
+    resetStability();
+    chordName.textContent = '--';
+    chordName.classList.add('silent');
+    chordConfidence.textContent = '-- match';
+    noteName.textContent = '--';
+    noteName.classList.add('silent');
+    freqHz.textContent = '0.0 Hz';
+    centsOff.textContent = '-- cents';
+    needle.style.left = '50%';
+    ledInput.classList.remove('live','warn');
+    ledVoice.classList.remove('live');
+    inputStatus.textContent = 'no signal — waiting for connection';
+    if(oldContext && oldContext.state !== 'closed'){
+      try{ await oldContext.close(); }catch(e){}
+    }
+  }
+
   btnConnect.onclick = async () => {
     try{
       btnConnect.disabled = true;
       btnConnect.textContent = 'Connecting...';
+      if(audioCtx || sourceStream) await teardownAudioSession();
       const constraints = {
         audio: {
           echoCancellation: false,
@@ -1551,6 +1903,7 @@
         }
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      sourceStream = stream;
       await listInputDevices();
 
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1603,10 +1956,18 @@
       voiceOutput.connect(mirrorRecordDest);
       const bandRecordDest = audioCtx.createMediaStreamDestination();
       bandAudioOutput.connect(bandRecordDest);
-      startTrackRecorder('input', inputRecordDest.stream);
-      startTrackRecorder('mirror', mirrorRecordDest.stream);
-      startTrackRecorder('band', bandRecordDest.stream);
-      trackRecordStatus.textContent = 'recording — input / mirror / band';
+      const recorderReady = [
+        startTrackRecorder('input', inputRecordDest.stream),
+        startTrackRecorder('mirror', mirrorRecordDest.stream),
+        startTrackRecorder('band', bandRecordDest.stream),
+      ];
+      if(recorderReady.every(Boolean)){
+        trackRecordStatus.textContent = 'recording — input / mirror / band';
+      } else if(recorderReady.some(Boolean)){
+        trackRecordStatus.textContent = 'recording available for supported tracks only';
+      } else {
+        trackRecordStatus.textContent = 'audio analysis connected — recording unavailable in this browser';
+      }
 
       sessionLog = [];
       sessionStartTime = performance.now();
@@ -1616,10 +1977,11 @@
       inputStatus.textContent = 'signal live — listening on ' + (audioCtx.sampleRate) + 'Hz';
       btnConnect.textContent = 'Reconnect';
       btnConnect.disabled = false;
-      document.getElementById('chart-url').textContent = window.location.protocol + '//' + window.location.hostname + ':' + window.location.port + '/chart.html';
+      document.getElementById('chart-url').textContent = new URL('chart.html', window.location.href).href;
 
-      requestAnimationFrame(drawWaveform);
+      animationFrameId = requestAnimationFrame(drawWaveform);
     }catch(err){
+      await teardownAudioSession();
       ledInput.classList.add('warn');
       inputStatus.textContent = 'connection failed: ' + err.message;
       btnConnect.textContent = 'Connect Aux Input';
@@ -1692,7 +2054,16 @@
   function setHarmonyMode(m){
     harmonyMode = m;
     Object.entries(harmonyButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===m));
-    if(m === 'off') stopHarmonyVoice();
+    if(m === 'off'){
+      stopHarmonyVoice();
+    } else if(currentInstrumentKey === 'off'){
+      stopHarmonyVoice();
+      harmonyStatus.textContent = 'select a synth instrument to hear harmony';
+    } else if(!detectedKey){
+      harmonyStatus.textContent = 'needs a detected key before it can harmonize correctly';
+    } else {
+      harmonyStatus.textContent = 'key known — harmony will play a diatonic interval above the melody';
+    }
   }
   harmonyButtons.off.onclick = () => setHarmonyMode('off');
   harmonyButtons.third.onclick = () => setHarmonyMode('third');
@@ -1780,9 +2151,18 @@
     }, Math.max(200, step.duration*1000)); // 200ms floor so a near-zero-duration recorded blip can't spin the loop
   }
   function stopLooperPlayback(){
+    const wasPlaying = looperPlaying;
     looperPlaying = false;
     if(looperPlaybackTimer){ clearTimeout(looperPlaybackTimer); looperPlaybackTimer = null; }
     btnLooperPlay.textContent = 'Play Loop';
+    if(wasPlaying){
+      if(lastChordKey){
+        bandChordKey = lastChordKey; // hand control back to the currently detected chord
+      } else if(!sustainEnabled){
+        bandChordKey = null;
+        if(appMode === 'band' || appMode === 'split') stopBandEngine();
+      }
+    }
   }
 
   btnLooperPlay.onclick = () => {
@@ -1820,6 +2200,10 @@
     ending: document.getElementById('section-ending'),
   };
   function setSection(name){
+    if(name !== 'ending' && endingPending){
+      queuedFill = false;
+      endingFillBarCompleted = false;
+    }
     currentSection = name;
     Object.entries(sectionButtons).forEach(([k,btn]) => btn.classList.toggle('active', k===name));
     if(name === 'intro'){
@@ -1828,7 +2212,8 @@
     } else if(name === 'ending'){
       sectionIntensityOverride = null;
       queuedFill = true; // one last fill on the way out
-      endingPending = true; // scheduleStep stops the engine cleanly after that fill bar completes
+      endingPending = true;
+      endingFillBarCompleted = false; // wait for a complete fill bar before stopping
     } else {
       sectionIntensityOverride = null;
       endingPending = false;
@@ -1851,11 +2236,15 @@
     const targetDegree = ((targetIndex % scale.length) + scale.length) % scale.length;
     const targetPc = (key.root + scale[targetDegree]) % 12;
     const melodyOctaveBase = melodyMidi - melodyPc; // MIDI number of this octave's C
-    return melodyOctaveBase + targetPc + wraps*12;
+    const targetMidi = melodyOctaveBase + targetPc + wraps*12;
+    // A scale-degree wrap is relative to the key tonic, not to C. In keys such
+    // as A minor, the fifth above A can have a lower pitch class (E), so ensure
+    // the resulting harmony is still above the melody's actual octave.
+    return targetMidi <= melodyMidi ? targetMidi + 12 : targetMidi;
   }
 
   function harmonyMidiFor(melodyMidi){
-    if(harmonyMode === 'off' || !detectedKey || (appMode !== 'mirror' && appMode !== 'split')) return null;
+    if(harmonyMode === 'off' || currentInstrumentKey === 'off' || !detectedKey || (appMode !== 'mirror' && appMode !== 'split')) return null;
     return diatonicHarmonyMidi(melodyMidi, detectedKey, harmonyMode === 'third' ? 2 : 4);
   }
 
@@ -1909,6 +2298,8 @@
   // off the existing AnalyserNode; pitch analysis is separate, on the audio
   // thread via pitch-processor.js, and arrives through handlePitchFrame
   function drawWaveform(){
+    animationFrameId = null;
+    if(!audioCtx || !analyser) return;
     analyser.getFloatTimeDomainData(dataArray);
     drawScope(dataArray);
 
@@ -1917,7 +2308,7 @@
 
     updateVocalDucking(); // no-op until a vocal mic is connected
 
-    requestAnimationFrame(drawWaveform);
+    animationFrameId = requestAnimationFrame(drawWaveform);
   }
 
   function handlePitchFrame({level, freq}){
@@ -1979,8 +2370,12 @@
     refreshKeyboardVisual();
   }
 
-  navigator.mediaDevices?.enumerateDevices().then(() => {}).catch(()=>{});
-  navigator.mediaDevices?.enumerateDevices().then(() => listVocalInputDevices()).catch(()=>{});
+  navigator.mediaDevices?.enumerateDevices?.().then(() => listInputDevices()).catch(()=>{});
+  navigator.mediaDevices?.enumerateDevices?.().then(() => listVocalInputDevices()).catch(()=>{});
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+    listInputDevices();
+    listVocalInputDevices();
+  });
 
   if('serviceWorker' in navigator){
     navigator.serviceWorker.register('sw.js').catch(() => {}); // installability is a nice-to-have here, not load-bearing — fail silently

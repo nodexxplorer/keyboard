@@ -1,42 +1,41 @@
 # Project: AUX/KEYS — Real-time keyboard audio analysis & playback
 
 ## What this is
-A web app that listens to a keyboard's audio signal (via aux/line-in, or mic for testing) in real time, detects what note(s) are being played, and plays them back through a synth voice. Two runtime modes are planned:
-- **Mirror mode**: detected note(s) → same instrument sound, played back live
-- **One-man-band mode**: detected chord → auto-generated bass line, drums, and harmony pad underneath, so a single keyboardist sounds like a full band
+A browser app that listens to a keyboard's audio signal (aux/line-in, or a microphone for testing), detects pitch and chords, and plays a synth voice or automatic accompaniment. It targets keyboard players in Pentecostal/contemporary worship settings; grooves should favor gospel and worship styles rather than classical or liturgical music.
 
-## Who it's for
-Built for keyboard players in Pentecostal/modern church worship settings (not orthodox/liturgical church music) — so the accompaniment style, when we get to it, should lean toward gospel/contemporary worship feel (shuffle grooves, straightforward chord progressions), not classical or orthodox chant style.
+## Platform and architecture
+Web Audio API + JavaScript, no build step. The app is served from `index.html`; `pitch-processor.js` runs YIN pitch detection in an AudioWorklet. Tone.js v15.1.22 is pinned from jsDelivr for synthesized voices. `server.py` serves the app and the same-WiFi chord-chart endpoints; `chart.html` is the bandmate display. PWA manifest and service worker are present. The service worker precaches the app/chart shell and caches the pinned Tone.js script after its first successful network load; first install therefore needs a network connection.
 
-## Platform decision (already made)
-**Web Audio API + JavaScript**, browser-based, targeting eventual PWA packaging so it installs and runs on both desktop and phone from one codebase. No native app store distribution planned. Tone.js is the likely next addition for richer synth/sample voices once we move past raw oscillators.
+## Current implementation status (2026-10-25)
+Phases 0–3 are implemented. Earlier project notes record successful real-hardware verification of pitch and chord stability, but the fixes made in this maintenance pass have only had automated/mock testing; verify audio behavior again on real hardware.
 
-## Current status: Phases 0–3 complete and verified on real hardware (files: `aux-keys (2).html` + `pitch-processor.js`)
-Two-file app (no build step, one external CDN dependency: Tone.js v15.1.22, pinned). Confirmed working end-to-end via `python3 -m http.server` + Chrome desktop, run as a real top-level page.
+- **Capture and pitch:** `getUserMedia`, waveform view, YIN pitch detection on an AudioWorklet, five-frame median smoothing, and four-hop note lock. Main input reconnection now tears down prior streams, recorders, audio context, and animation loop instead of accumulating duplicate sessions.
+- **Chord and key:** 12-bin chroma with major/minor triad matching, smoothing/locking, and a heuristic key estimate from accumulated chord durations. Key estimate and harmony are suggestions; correctness across a whole song still needs musician-led validation.
+- **Voices and performance:** quick-select synthesized Piano, Electric Piano, Organ, Strings, Guitar, Pick Bass, Ocarina, Synth Lead, Choir, and Brass, plus a categorized selector for all 128 standard GM program names (16 families × 8). GM entries use family-specific oscillator synthesis with selected patches mapped to the app's shaped voices; these are approximations, not actual GM SoundFont samples or Yamaha XG bank variations. Mirror, one-man-band, and frequency-band Register Split modes; transpose, diatonic third/fifth harmony, touch curve, and per-voice reverb.
+- **Auto-band:** look-ahead 16-step style patterns (Gospel Shuffle, Ballad, Praise & Worship, Up-tempo), kick/snare/hi-hat, root/fifth bass, chord pad, sustain, fills, intensity-aware levels, and Intro/Main/Ending section controls. Fill consumption and ending-fill timing were corrected and regression-tested in this pass.
+- **Session tools:** chord looper, two scenes, named registrations and setlist, note/chord log download, and separate input/mirror/band audio recordings where `MediaRecorder` is supported. Stopping a looper now returns control to the live chord or stops the band as appropriate. Recording controls report unsupported browser capability instead of aborting audio setup.
+- **Chord chart and PWA:** same-WiFi chart broadcast via `server.py`; chart URL now uses the current origin (compatible with proxied HTTPS preview hosts). Offline shell includes `chart.html`; server validates update payloads and bounds request size.
 
-**Phase 0 — foundation (done):** `getUserMedia` capture, waveform visualizer, YIN monophonic pitch detection moved into an `AudioWorklet` (`pitch-processor.js`) so it runs on the audio rendering thread instead of `requestAnimationFrame`. Stability layer (5-frame median + 4-hop note-lock) — fixed to also gate the *displayed* note letter, not just the played voice, after real-hardware testing caught mid-hold flicker.
+## Tests
+Run the automated checks from the repository root:
+- `node --test tests/app-runtime.test.js`
+- `python3 -m unittest discover -s tests -v`
+- Syntax checks: `node --check pitch-processor.js`, extract the inline app script from `index.html` and run `node --check`, and `node --check sw.js`.
 
-**Phase 1 — chroma/chord detection (done):** 12-bin chroma vector, cosine-similarity match against major/minor triad templates. Two real-hardware bugs found and fixed: (1) energy/confidence thresholds guessed too strict at first (silent), then found background noise could false-positive lock a chord — fixed by computing that a flat noise vector scores exactly 0.5 cosine similarity against any 3-note template and setting the confidence floor (0.78) well clear of that baseline, not just above it. (2) chroma needed its own rolling-average smoothing (like the pitch median filter) to stop mid-hold chord flicker.
+The runtime test uses a mocked AudioContext; it does not replace browser microphone, audio-quality, timing, mobile install, or real-device testing.
 
-**Phase 2 — voice, style, tempo (done):** Tone.js voices (Piano/Organ/Strings/Choir/Brass, synthesized not sampled), style selector (Gospel Shuffle/Ballad/Praise & Worship/Up-tempo) with per-style default BPM, tap-tempo + visual metronome, Sustain and Fill controls.
-
-**Phase 3 — auto-band engine (done, the actual differentiator):** look-ahead scheduler (25ms poll / 100ms schedule-ahead — the standard Web Audio precision-timing pattern) driving a 16-step/bar pattern per style: kick/snare/hihat (Tone.MembraneSynth/NoiseSynth), bass alternating root/fifth (Tone.MonoSynth), pad sustaining chord tones (Tone.PolySynth). Sync-start (first real chord starts the band), Sustain toggle controls whether it keeps going through a silence gap, Fill auto-triggers on a chord change (not just the manual button), ±6ms humanized timing on drum/bass hits.
-
-**Since then, also built:** on-screen keyboard visual (highlights by pitch class, any octave); Registrations + Setlist mode (save/recall voice+style+tempo+sustain by name, persisted to `localStorage`, confirmed surviving a reload); session log (timestamped note/chord on/off events, downloadable as text).
-
-**In progress:** multi-track audio recording (input / mirror voice / band as separate downloadable audio files, via `MediaStreamAudioDestinationNode` + `MediaRecorder` per track) — inspired by looking at n-Track Studio's feature set, scoped down from full-DAW territory (no VST hosting, no stem separation, no cloud collaboration — wrong tool for a live performance companion).
-
-## Known constraints / gotchas learned so far
-- Claude.ai's artifact preview iframe blocks `getUserMedia` — always develop/test this as a real top-level page (localhost or real host).
-- The tester is not a musician — testing stays observational ("did the displayed note/chord stay stable and change appropriately"), not music-theory validation.
-- Tone.js v15: `Tone.Destination`/`Tone.Transport`/etc. are the *classes*, not ready instances — use `Tone.getDestination()`/`Tone.getTransport()` etc.
-- For any future cosine-similarity/template-matching threshold, compute what a flat/noise vector scores against the template set first and set the floor well clear of that baseline — don't just pick a round number.
+## Known constraints / decisions
+- Microphone access requires a secure context (HTTPS or localhost) and user permission. A sandbox/artifact iframe may block `getUserMedia`; test from a top-level page.
+- Pitch detection is monophonic. Register Split is a frequency-band approximation, not true polyphonic/multi-note tracking.
+- Tone.js instruments are synthesized approximations, not sampled instruments.
+- Chord templates currently cover major/minor triads only. Root/quality and key estimates need human musical validation.
+- A flat chroma/noise vector scores 0.5 against a triad template; confidence thresholds should remain well above that baseline.
+- Tone.js v15 uses getters such as `Tone.getDestination()` rather than treating `Tone.Destination` as an instantiated node.
 
 ## Open decision: song upload + stem separation
-Just asked for: upload a music file and separate it into individual instrument components. This is a genuinely different category of feature from everything else here (real-time performance analysis) — real stem separation is a hard ML problem, and the honest options are: (a) a free in-browser ML model (e.g. a TensorFlow.js port of a Spleeter/Demucs-style network) — no cost, private, but a large model download and rougher quality; (b) a third-party cloud API (much better quality/speed, but needs an account/API key, likely costs money per use, and sends the uploaded audio to that service); (c) skip for now — this echoes the vision doc's own "Learn from a recording" stretch goal, already flagged as later-stage. Needs a decision before building, not a guess.
+Real instrument stem separation is a separate ML problem. Before implementing it, decide between an in-browser model (large download, private, lower quality), a cloud service (better quality, account/cost and audio leaves the device), or deferring it. Do not imply the current live performance app already has stem separation.
 
-## What to do next (pick up here)
-1. Finish multi-track recording (input/mirror/band), verify on real hardware
-2. Decide the stem-separation approach above, then scope/build it
-3. Remaining backlog from the fuller feature vision (see the expanded brief for the full list): live chord-chart broadcast, auto key/scale detection + auto-transpose, auto-harmony on melody, audio-based register split, playing-intensity-aware band dynamics, one-touch stab pads, vocal-mic auto-ducking, chord looper, scene switching, per-voice effects — prioritize using the automation-scope categorization (fully-automatable vs. smart-default-with-override vs. always-manual) already worked out
-4. PWA installability (manifest, service worker) for the phone target — not yet started
+## Next steps
+1. Re-test capture, mode switching, chord stability, split routing, accompaniment timing, recording downloads, vocal ducking, and reconnection on supported desktop/mobile browsers and real keyboard hardware.
+2. Make and document the stem-separation decision before scoping that feature.
+3. Revisit backlog only after validation: richer chord qualities/voicings, authored Main A/B grooves, effects, and accessibility/mobile refinements.
